@@ -39,10 +39,3 @@ jar {
    }
 }
 */
-
-// Configuring the wrapper, the new way (since Gradle 4.8) 
-// see https://docs.gradle.org/current/userguide/gradle_wrapper.html#customizing_wrapper
-wrapper{
-    gradleVersion = '5.1'
-    distributionType = Wrapper.DistributionType.BIN
-}
