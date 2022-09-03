@@ -1,0 +1,41 @@
+apply plugin: 'java'
+apply plugin: 'eclipse'
+version = '1.0'
+sourceCompatibility = '1.8'
+
+sourceSets {
+   main {
+      java {
+         srcDir 'src'
+      }
+   }
+	
+   test {
+      java {
+         srcDir 'test'
+      }
+   }
+}
+
+test {
+    testLogging {
+    	events = ["passed", "failed", "skipped"]
+	}
+}
+
+repositories {
+	mavenCentral()
+}
+
+dependencies {
+    testImplementation 'org.junit.jupiter:junit-jupiter-api:5.8.1'
+    testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine:5.8.1'
+}
+
+/*
+jar {
+   manifest {
+      attributes 'Main-Class': 'Main'
+   }
+}
+*/
