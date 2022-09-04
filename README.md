@@ -1,4 +1,4 @@
-![](https://github.com/mmoult/Expression/workflows/"Java CI with Gradle"/badge.svg)
+![](https://github.com/mmoult/Expression/workflows/Java%20CI%20with%20Gradle/badge.svg)
 
 # Expression
 A small library to evaluate String expressions or solve for a variable (future) in Java.
