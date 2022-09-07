@@ -7,7 +7,7 @@ import org.junit.jupiter.api.Test;
 
 import expression.ExpressionParser.*;
 
-class ExpressionSolverTest {
+class SolverTest {
 	static ExpressionSolver solve;
 	
 	@BeforeAll

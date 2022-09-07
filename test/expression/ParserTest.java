@@ -11,7 +11,7 @@ import expression.ExpressionLexer.Token;
 import expression.ExpressionSolver.Expression;
 import expression.ExpressionParser.*;
 
-class ExpressionParserTest {
+class ParserTest {
 	static ExpressionParser parse;
 	
 	@BeforeAll

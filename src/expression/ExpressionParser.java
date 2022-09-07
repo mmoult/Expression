@@ -167,13 +167,18 @@ public class ExpressionParser {
 			throw new RuntimeException("Malformed expression! Missing arguments for " + seg.getClass().getSimpleName() + ".");
 		
 		// Try to optimize if it is allowable
-		if (optimize)
-			seg.optimize(new ExpressionSolver(new String[] {}, new double[] {}));
+		if (optimize) {
+			Valuable opt = seg.optimize(new ExpressionSolver(new String[] {}, new double[] {}));
+			if (opt != null)
+				seg = opt;
+		}
 		
 		return seg;
 	}
 	
 	protected static abstract class Valuable implements Expression {
+		protected Op parent = null; // useful to keep track of the parent for optimization's sake
+		
 		public int getPrecedence() {
 			return 0;
 		}
@@ -184,7 +189,9 @@ public class ExpressionParser {
 			return true;
 		}
 		
-		public void optimize(ExpressionSolver s) {}
+		public Valuable optimize(ExpressionSolver s) {
+			return null;
+		}
 	}
 	
 	protected static abstract class Op extends Valuable {
@@ -196,6 +203,7 @@ public class ExpressionParser {
 		}
 		
 		public void setRhs(Valuable rhs) {
+			rhs.parent = this;
 			if (!rhs.usable())
 				throw new RuntimeException("Malformed expression! Missing right argument for " + this.getClass().getSimpleName() + ".");
 			this.rhs = rhs;
@@ -207,17 +215,45 @@ public class ExpressionParser {
 		}
 		
 		@Override
-		public void optimize(ExpressionSolver s) {
-			// The very simplest optimization is to try to evaluate the operand and
-			// save the value if it resolves without any variables.
+		public Valuable optimize(ExpressionSolver s) {
+			// Optimize children, then optimize self
+			optimizeChildren(s);
+			
+			// Call operation-specific optimizations
+			Valuable got = optimize();
+			Valuable newThis = this;
+			if (got != null)
+				newThis = got;
+			
+			// Lastly, try to fold this into a single constant
 			try {
-				double val = rhs.getValue(s);
-				// If we made it this far, then it is constant
-				rhs = new Constant(val);
+				double val = newThis.getValue(s);
+				// Pass the constant up to the parent instead of itself
+				return new Constant(val);
 			}catch(UndefinedVarException e) {
-				// try to optimize the child element
-				rhs.optimize(s);
+				// Don't do anything, no more optimizations possible.
+				if (newThis != this) {
+					// update its parent
+					newThis.parent = this.parent;
+					return newThis;
+				}
+				return null;
 			}
+		}
+		
+		protected void optimizeChildren(ExpressionSolver s) {
+			Valuable right = rhs.optimize(s);
+			if (right != null)
+				setRhs(right);
+		}
+		
+		protected Valuable optimize() {
+			return null;
+		}
+		
+		protected void replaceChild(Valuable child, Valuable replaceWith) {
+			if (child == rhs)
+				setRhs(replaceWith);
 		}
 		
 		@Override
@@ -238,6 +274,7 @@ public class ExpressionParser {
 		}
 		
 		public void setLhs(Valuable lhs) {
+			lhs.parent = this;
 			if (!lhs.usable())
 				throw new RuntimeException("Malformed expression! Missing left argument for " + this.getClass().getSimpleName() + ".");
 			this.lhs = lhs;
@@ -249,17 +286,11 @@ public class ExpressionParser {
 		}
 		
 		@Override
-		public void optimize(ExpressionSolver s) {
-			super.optimize(s);
-			// Also try to optimize the left-hand side
-			try {
-				double val = lhs.getValue(s);
-				// If we made it this far, then it is constant
-				lhs = new Constant(val);
-			}catch(UndefinedVarException e) {
-				// try to optimize the child element
-				lhs.optimize(s);
-			}
+		protected void optimizeChildren(ExpressionSolver s) {
+			super.optimizeChildren(s);
+			Valuable left = lhs.optimize(s);
+			if (left != null)
+				setLhs(left);
 		}
 		
 		@Override
@@ -280,6 +311,103 @@ public class ExpressionParser {
 		public int getPrecedence() {
 			return 2;
 		}
+		
+		protected static class ConstantRef {
+			public final Op parent;
+			public final boolean rightChild;
+			public final boolean negated;
+			
+			public ConstantRef(Op parent, boolean rightChild, boolean negated) {
+				this.parent = parent;
+				this.rightChild = rightChild;
+				this.negated = negated;
+			}
+		}
+		protected ConstantRef findConstant(Valuable start, boolean rightChild, boolean negated) {
+			// We can work with addition and subtraction
+			if (start instanceof Constant) {
+				return new ConstantRef(start.parent, rightChild, negated);
+			}else if (start instanceof Addition) {
+				Addition add = (Addition)start;
+				ConstantRef left = findConstant(add.lhs, false, negated);
+				if (left != null)
+					return left;
+				return findConstant(add.rhs, true, negated);
+			}else if (start instanceof Subtraction) {
+				Subtraction sub = (Subtraction)start;
+				ConstantRef left = findConstant(sub.lhs, false, negated);
+				if (left != null)
+					return left;
+				return findConstant(sub.rhs, true, !negated);
+			}else if (start instanceof Negation) {
+				return findConstant(((Negation)start).rhs, true, !negated);
+			}
+			return null;
+		}
+		
+		@Override
+		protected Valuable optimize() {
+			// Addition is commutative and associative, which gives us some flexibility
+			// Since the children have already been optimized, we just need to focus on
+			// combining constants from both sides.
+			// In other words, there should not be multiple constants to combine on a
+			// single side, since those checks were already done.
+			ConstantRef left = findConstant(lhs, false, false);
+			if (left == null)
+				return null; // We need to find constants on both sides to perform this operation
+			ConstantRef right = findConstant(rhs, true, false);
+			if (right == null)
+				return null;
+			
+			// Collapse the constants, bringing from left to right
+			// Both parents must be BinOp, since negation already ran its constant collapse optimization
+			Constant rightConst;
+			if (right.rightChild) {
+				rightConst = (Constant)right.parent.rhs;
+			}else
+				rightConst = (Constant)((BinOp)right.parent).lhs;
+			
+			double leftConst;
+			BinOp parent = (BinOp)left.parent;
+			if (left.rightChild)
+				leftConst = ((Constant)parent.rhs).val;
+			else
+				// opposite logic to just above
+				leftConst = ((Constant)parent.lhs).val;
+			boolean thisParent = !replaceParent(parent, !left.rightChild);
+			// Apply left to right
+			if (left.negated ^ right.negated)
+				leftConst *= -1;
+			rightConst.val += leftConst;
+			
+			if (thisParent) // if this was the parent of the left child, 
+				return rhs; // then we need to replace it with the right
+			return null; // otherwise, changes were made in place
+		}
+		
+		protected boolean replaceParent(BinOp parent, boolean rightReplace) {
+			Valuable replaceWith;
+			if (rightReplace) {
+				// We can run into complications if the replace with is negated
+				if (parent instanceof Subtraction) {
+					Negation neg = new Negation();
+					neg.setRhs(parent.rhs);
+					replaceWith = neg;
+				}else
+					replaceWith = parent.rhs;
+			}else
+				replaceWith = parent.lhs; // left hand side cannot be negated
+			
+			Op grand = parent.parent;
+			// If there is no grandparent, then the return is the parent
+			if (grand == null)
+				return false;
+			if (grand.rhs == parent) // if the parent was its parent's right child
+				grand.setRhs(replaceWith);
+			else // parent was its parent's left child
+				((BinOp)grand).setLhs(replaceWith);
+			return true;
+		}
 	}
 	
 	protected static class Subtraction extends BinOp {
@@ -291,6 +419,35 @@ public class ExpressionParser {
 		@Override
 		public int getPrecedence() {
 			return 2;
+		}
+
+		@Override
+		protected Valuable optimize() {
+			// Try to reuse the logic from add (since subtract is very similar)
+			Addition useAdd = new Addition();
+			useAdd.setLhs(lhs);
+			Negation neg = new Negation();
+			neg.setRhs(rhs);
+			Valuable right = neg.optimize();
+			boolean optNeg; // We need to know if negation optimized in order to restore state
+			if (right == null) {
+				right = neg;
+				optNeg = false;
+			}else
+				optNeg = true;
+			
+			useAdd.setRhs(right);
+			Valuable opt = useAdd.optimize();
+			// If an optimization was made, we use it instead of this
+			if (opt != null)
+				return opt;
+			if (optNeg)
+				return useAdd;
+			
+			// If we could not use either, we need to restore the operands of this
+			setLhs(lhs);
+			setRhs(rhs);
+			return null;
 		}
 	}
 	
@@ -304,6 +461,20 @@ public class ExpressionParser {
 		public int getPrecedence() {
 			return 5;
 		}
+
+		@Override
+		protected Valuable optimize() {
+			if (rhs instanceof Constant) {
+				// negate the constant and remove this step
+				Constant right = (Constant)rhs;
+				right.val *= -1;
+				return right;
+			}else if (rhs instanceof Negation) {
+				// cancel the two negations
+				return ((Negation)rhs).rhs;
+			}
+			return null;
+		}
 	}
 	
 	protected static class Multiplication extends BinOp {
@@ -315,6 +486,12 @@ public class ExpressionParser {
 		@Override
 		public int getPrecedence() {
 			return 3;
+		}
+
+		@Override
+		protected Valuable optimize() {
+			// TODO Auto-generated method stub
+			return null;
 		}
 	}
 	
@@ -328,6 +505,12 @@ public class ExpressionParser {
 		public int getPrecedence() {
 			return 3;
 		}
+
+		@Override
+		protected Valuable optimize() {
+			// TODO Auto-generated method stub
+			return null;
+		}
 	}
 	
 	protected static class Exponentiation extends BinOp {
@@ -339,6 +522,12 @@ public class ExpressionParser {
 		@Override
 		public int getPrecedence() {
 			return 4;
+		}
+
+		@Override
+		protected Valuable optimize() {
+			// TODO Auto-generated method stub
+			return null;
 		}
 	}
 	
@@ -352,6 +541,12 @@ public class ExpressionParser {
 		public int getPrecedence() {
 			return 4;
 		}
+
+		@Override
+		protected Valuable optimize() {
+			// TODO Auto-generated method stub
+			return null;
+		}
 	}
 	
 	protected static class Min extends BinOp {
@@ -364,6 +559,12 @@ public class ExpressionParser {
 		public int getPrecedence() {
 			return 1;
 		}
+
+		@Override
+		protected Valuable optimize() {
+			// TODO Auto-generated method stub
+			return null;
+		}
 	}
 	
 	protected static class Max extends BinOp {
@@ -375,6 +576,12 @@ public class ExpressionParser {
 		@Override
 		public int getPrecedence() {
 			return 1;
+		}
+
+		@Override
+		protected Valuable optimize() {
+			// TODO Auto-generated method stub
+			return null;
 		}
 	}
 	
@@ -424,6 +631,12 @@ public class ExpressionParser {
 		public int getPrecedence() {
 			return 4;
 		}
+
+		@Override
+		protected Valuable optimize() {
+			// TODO Auto-generated method stub
+			return null;
+		}
 	}
 	
 	protected static class NatLog extends Op {
@@ -435,6 +648,11 @@ public class ExpressionParser {
 		@Override
 		public int getPrecedence() {
 			return 5;
+		}
+
+		@Override
+		protected Valuable optimize() {
+			return null;
 		}
 	}
 	
