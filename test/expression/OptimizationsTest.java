@@ -5,12 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.Test;
 
-import expression.ExpressionParser.Addition;
-import expression.ExpressionParser.Constant;
-import expression.ExpressionParser.Multiplication;
-import expression.ExpressionParser.Negation;
-import expression.ExpressionParser.Subtraction;
-import expression.ExpressionParser.Variable;
+import expression.ExpressionParser.*;
 import expression.ExpressionSolver.Expression;
 
 class OptimizationsTest {
@@ -63,24 +58,45 @@ class OptimizationsTest {
 	void minusNoOptimizationsComplex() {
 		// Verify again with a little more complicated example that the state gets rolled
 		// back properly.
-		Expression e = solve.parseString("x - (z * (3 + y)");
+		Expression e = solve.parseString("(a + x) - (z + (3 + y))");
 		Subtraction base = new Subtraction();
-		Variable x = new Variable("x");
-		base.setLhs(x);
-		Multiplication mult = new Multiplication();
-		mult.setLhs(new Variable("z"));
+		Addition left = new Addition();
+		left.setLhs(new Variable("a"));
+		left.setRhs(new Variable("x"));
+		base.setLhs(left);
+		Addition right = new Addition();
+		right.setLhs(new Variable("z"));
 		Addition add = new Addition();
 		add.setLhs(new Constant(3));
 		add.setRhs(new Variable("y"));
-		mult.setRhs(add);
-		base.setRhs(mult);
+		right.setRhs(add);
+		base.setRhs(right);
 		assertEquals(base, e);
-		assertTrue(x.parent == base);
-		assertTrue(mult.parent == base);
+		assertTrue(left.parent == base);
+		assertTrue(right.parent == base);
 	}
 	
 	@Test
-	void minusToCorrectAdd() {
+	void minusOptTransform() {
+		// Verify again with a little more complicated example that the state gets rolled
+		// back properly.
+		Expression e = solve.parseString("(7 + x) - (z + (3 + y)");
+		Addition base = new Addition();
+		base.setLhs(new Variable("x"));
+		Negation right = new Negation();
+		Addition zAdd = new Addition();
+		zAdd.setLhs(new Variable("z"));
+		Addition add = new Addition();
+		add.setLhs(new Constant(-4));
+		add.setRhs(new Variable("y"));
+		zAdd.setRhs(add);
+		right.setRhs(zAdd);
+		base.setRhs(right);
+		assertEquals(base, e);
+	}
+	
+	@Test
+	void minusRightTransform() {
 		Expression e = solve.parseString("x - (-y)");
 		// Since there is an "optimization" (collapsing the negation), the add form
 		// is treated as more optimized, and the change is kept.
@@ -145,6 +161,55 @@ class OptimizationsTest {
 		sub.setRhs(right);
 		base.setRhs(sub);
 		assertEquals(base, e);
+	}
+	
+	@Test
+	void redundantAddRight() {
+		Expression e = solve.parseString("x + 0");
+		Variable x = new Variable("x");
+		assertEquals(x, e);
+	}
+	
+	@Test
+	void redundantAddLeft() {
+		Expression e = solve.parseString("0 + ln y");
+		NatLog ln = new NatLog();
+		ln.setRhs(new Variable("y"));
+		assertEquals(ln, e);
+	}
+	
+	@Test
+	void redundantSubRight() {
+		Expression e = solve.parseString("3x - 0");
+		Multiplication mult = new Multiplication();
+		mult.setLhs(new Constant(3));
+		mult.setRhs(new Variable("x"));
+		assertEquals(mult, e);
+	}
+	
+	@Test
+	void redundantMultLeft() {
+		Expression e = solve.parseString("1 * (2 log x)");
+		Logarithm log = new Logarithm();
+		log.setLhs(new Constant(2));
+		log.setRhs(new Variable("x"));
+		assertEquals(log, e);
+	}
+	
+	@Test
+	void redundantMultRight() {
+		Expression e = solve.parseString("(x max y) * 1");
+		Max max = new Max();
+		max.setLhs(new Variable("x"));
+		max.setRhs(new Variable("y"));
+		assertEquals(max, e);
+	}
+	
+	@Test
+	void redundantDivideRight() {
+		Expression e = solve.parseString("x / 1");
+		Variable x = new Variable("x");
+		assertEquals(x, e);
 	}
 	
 	@Test

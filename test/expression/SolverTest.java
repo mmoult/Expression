@@ -9,6 +9,7 @@ import expression.ExpressionParser.*;
 
 class SolverTest {
 	static ExpressionSolver solve;
+	static double maxErr = 0.0001;
 	
 	@BeforeAll
 	static void setup() {
@@ -38,7 +39,7 @@ class SolverTest {
 		right.setLhs(square);
 		right.setRhs(new Constant(3));
 		add.setRhs(right);
-		assertTrue(equals(38.31370849898476, solve.eval(add)));
+		assertTrue(ExpressionParser.equals(38.31370849898476, solve.eval(add), maxErr));
 	}
 
 	@Test
@@ -49,13 +50,7 @@ class SolverTest {
 		solve.parse.optimize = false;
 		double nonopt = solve.evalString(expression);
 		solve.parse.optimize = true;
-		assertTrue(equals(opt, nonopt));
-		assertTrue(equals(opt, 1));
-	}
-	
-	boolean equals(double x, double y) {
-		// acceptable error
-		final double ETA = 0.001;
-		return x + ETA > y && y + ETA > x;
+		assertTrue(ExpressionParser.equals(opt, nonopt, maxErr));
+		assertTrue(ExpressionParser.equals(opt, 1, maxErr));
 	}
 }

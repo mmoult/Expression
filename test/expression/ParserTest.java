@@ -112,6 +112,39 @@ class ParserTest {
 	}
 	
 	@Test
+	void complexParen() { // (7 + x) - (z * (3 + y))
+		List<Token> inp = List.of(tok(Token.Type.OPEN_PAREN),
+								  tok(Token.Type.NUMBER, "7"),
+				  				  tok(Token.Type.PLUS),
+				  				  tok(Token.Type.IDENTIFIER, "x"),
+				  				  tok(Token.Type.CLOSE_PAREN),
+				  				  tok(Token.Type.MINUS),
+				  				  tok(Token.Type.OPEN_PAREN),
+				  				  tok(Token.Type.IDENTIFIER, "z"),
+				  				  tok(Token.Type.MULTIPLY),
+				  				  tok(Token.Type.OPEN_PAREN),
+				  				  tok(Token.Type.NUMBER, "3"),
+				  				  tok(Token.Type.PLUS),
+				  				  tok(Token.Type.IDENTIFIER, "y"),
+				  				  tok(Token.Type.CLOSE_PAREN),
+				  				  tok(Token.Type.CLOSE_PAREN));
+		Expression act = parse.parse(inp);
+		Subtraction exp = new Subtraction();
+		Addition left = new Addition();
+		left.setLhs(new Constant(7));
+		left.setRhs(new Variable("x"));
+		exp.setLhs(left);
+		Multiplication right = new Multiplication();
+		right.setLhs(new Variable("z"));
+		Addition add = new Addition();
+		add.setLhs(new Constant(3));
+		add.setRhs(new Variable("y"));
+		right.setRhs(add);
+		exp.setRhs(right);
+		assertEquals(exp, act);
+	}
+	
+	@Test
 	void badImplicit() { // 3 4
 		List<Token> inp = List.of(tok(Token.Type.NUMBER, "3"), tok(Token.Type.NUMBER, "4"));
 		assertThrows(RuntimeException.class, () -> {parse.parse(inp);});
