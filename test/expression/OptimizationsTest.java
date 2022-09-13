@@ -2,6 +2,7 @@ package expression;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 
 import org.junit.jupiter.api.Test;
 
@@ -213,6 +214,30 @@ class OptimizationsTest {
 	}
 	
 	@Test
+	void cancelMultiplicationRight() {
+		Expression e = solve.parseString("(cos x + sin y) * 0");
+		assertEquals(new Constant(0), e);
+	}
+	
+	@Test
+	void cancelMultiplicationLeft() {
+		Expression e = solve.parseString("0 * sin(cos x)");
+		assertEquals(new Constant(0), e);
+	}
+	
+	@Test
+	void cancelDivisionLeft() {
+		Expression e = solve.parseString("0 / (2 ^ x)");
+		assertEquals(new Constant(0), e);
+	}
+	
+	@Test
+	void cancelExponentiation() {
+		Expression e = solve.parseString("(x + 2log y ^ z) ^ 0");
+		assertEquals(new Constant(1), e);
+	}
+	
+	@Test
 	void foldConstantsTopDivide() {
 		// Some complications may arise from having the constant at the top level, since
 		// there is no parent to reference
@@ -238,6 +263,126 @@ class OptimizationsTest {
 	void collapseNegations() {
 		Expression e = solve.parseString("--x");
 		assertEquals(new Variable("x"), e);
+	}
+	
+	@Test
+	void applyNegationNestedConstant() {
+		Expression act = solve.parseString("-(x * ((y / -3) * z))");
+		Multiplication exp = new Multiplication();
+		exp.setLhs(new Variable("x"));
+		Multiplication right = new Multiplication();
+		right.setRhs(new Variable("z"));
+		Division div = new Division();
+		div.setLhs(new Variable("y"));
+		div.setRhs(new Constant(3)); // not negative 3
+		right.setLhs(div);
+		exp.setRhs(right);
+		assertEquals(exp, act);
+	}
+	
+	@Test
+	void logExponentiation() {
+		Expression e = solve.parseString("(y + 1) log ((y+1)^x)");
+		assertEquals(new Variable("x"), e);
+	}
+	
+	@Test
+	void logRoot() {
+		Expression e = solve.parseString("z log (y r z)");
+		//z log (y r z) = z log(z ^ (1/y)) = 1/y
+		Division div = new Division();
+		div.setLhs(new Constant(1));
+		div.setRhs(new Variable("y"));
+		assertEquals(div, e);
+	}
+	
+	@Test
+	void natLogExponentiation() {
+		double e = 2.7182818284590452353602874713527;
+		Expression exp = solve.parseString("ln (" + e + "^x)");
+		assertEquals(new Variable("x"), exp);
+	}
+	
+	@Test
+	void combineExponentiations() {
+		Expression act = solve.parseString("(x^y)^z");
+		// (x^y)^z = x^(yz)
+		Exponentiation base = new Exponentiation();
+		base.setLhs(new Variable("x"));
+		Multiplication exp = new Multiplication();
+		exp.setLhs(new Variable("y"));
+		exp.setRhs(new Variable("z"));
+		base.setRhs(exp);
+		assertEquals(base, act);
+	}
+	
+	@Test
+	void combineExponentiationAndRoot() {
+		Expression act = solve.parseString("(z r y) ^ x");
+		// (z r y) ^ x = (y ^ 1/z) ^ x = y ^(x/z)
+		Exponentiation exp = new Exponentiation();
+		exp.setLhs(new Variable("y"));
+		Division div = new Division();
+		div.setLhs(new Variable("x"));
+		div.setRhs(new Variable("z"));
+		exp.setRhs(div);
+		assertEquals(exp, act);
+	}
+	
+	@Test
+	void combineRootAndExponentiation() {
+		Expression act = solve.parseString("z r (x^y)");
+		// z r (x^y) = (x^y)^(1/z) = x^(y/z)
+		Exponentiation exp = new Exponentiation();
+		exp.setLhs(new Variable("x"));
+		Division div = new Division();
+		div.setLhs(new Variable("y"));
+		div.setRhs(new Variable("z"));
+		exp.setRhs(div);
+		assertEquals(exp, act);
+	}
+	
+	@Test
+	void combineRoots() {
+		Expression act = solve.parseString("z r (y r x)");
+		// z r (y r x) = (y r x) ^ 1/z = (x^(1/y))^(1/z) = x^(1/(y*z))
+		Exponentiation exp = new Exponentiation();
+		exp.setLhs(new Variable("x"));
+		Division div = new Division();
+		div.setLhs(new Constant(1));
+		Multiplication mult = new Multiplication();
+		mult.setLhs(new Variable("y"));
+		mult.setRhs(new Variable("z"));
+		div.setRhs(mult);
+		exp.setRhs(div);
+		assertEquals(exp, act);
+	}
+	
+	@Test
+	void sumLogsSimple() {
+		// ylogx + ylogy + lnx + lny = 5log(x*y) + ln(x*y)
+		fail("Not implemented yet!");
+	}
+	
+	@Test
+	void sumLogsShuffled() {
+		// lnx + ylogy + ylogx + lny = ln(x*y) + 5log(x*y)
+	}
+	
+	@Test
+	void subtractLogs() {
+		// ylogx - ylogz + lnx - lny = 
+		fail("Not implemented yet!");
+	}
+	
+	@Test
+	void multiplyExponentiations() {
+		fail("Not implemented yet!");
+	}
+	
+	@Test
+	void divideExponentiations() {
+		fail("Not implemented yet!");
 	}
 
 }

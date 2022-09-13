@@ -322,12 +322,15 @@ public class ExpressionParser {
 	}
 	
 	/**
-	 * Addition/Subtraction and Multiplication both perform an optimization to extract
-	 * a constant from the left tree and from the right tree in order to combine the
-	 * values. This class provides a wrapping around necessary state variables.
+	 * Some optimizations need to locate some type of operation in one or both of their
+	 * children expressions. For example, Addition/Subtraction and Multiplication both
+	 * perform an optimization to extract a constant from the left tree and from the
+	 * right tree in order to combine the values. Also, Negation looks for a constant
+	 * to apply its negation to. This class is a structure to wrap around the necessary
+	 * state variables.
 	 */
-	protected static class ConstantRef {
-		/** The parent of the constant found */
+	protected static class NodeRef {
+		/** The parent of the node found */
 		public final Op parent;
 		/** Whether the constant is the right child (rhs) of the given parent */
 		public final boolean rightChild;
@@ -335,7 +338,7 @@ public class ExpressionParser {
 		 *  for Multiplication/Division) by parent nodes in the tree. */
 		public final boolean reverse;
 		
-		public ConstantRef(Op parent, boolean rightChild, boolean reverse) {
+		public NodeRef(Op parent, boolean rightChild, boolean reverse) {
 			this.parent = parent;
 			this.rightChild = rightChild;
 			this.reverse = reverse;
@@ -353,19 +356,19 @@ public class ExpressionParser {
 			return 2;
 		}
 		
-		protected ConstantRef findConstant(Valuable start, boolean rightChild, boolean negated) {
+		protected NodeRef findConstant(Valuable start, boolean rightChild, boolean negated) {
 			// We can work with addition, subtraction, and negation (which is subtraction from 0)
 			if (start instanceof Constant) {
-				return new ConstantRef(start.parent, rightChild, negated);
+				return new NodeRef(start.parent, rightChild, negated);
 			}else if (start instanceof Addition) {
 				Addition add = (Addition)start;
-				ConstantRef left = findConstant(add.lhs, false, negated);
+				NodeRef left = findConstant(add.lhs, false, negated);
 				if (left != null)
 					return left;
 				return findConstant(add.rhs, true, negated);
 			}else if (start instanceof Subtraction) {
 				Subtraction sub = (Subtraction)start;
-				ConstantRef left = findConstant(sub.lhs, false, negated);
+				NodeRef left = findConstant(sub.lhs, false, negated);
 				if (left != null)
 					return left;
 				return findConstant(sub.rhs, true, !negated);
@@ -402,10 +405,10 @@ public class ExpressionParser {
 			// combining constants from both sides.
 			// In other words, there should not be multiple constants to combine on a
 			// single side, since those checks were already done.
-			ConstantRef left = findConstant(lhs, false, false);
+			NodeRef left = findConstant(lhs, false, false);
 			if (left == null)
 				return null; // We need to find constants on both sides to perform this operation
-			ConstantRef right = findConstant(rhs, true, false);
+			NodeRef right = findConstant(rhs, true, false);
 			if (right == null)
 				return null;
 			
@@ -517,6 +520,60 @@ public class ExpressionParser {
 			if (rhs instanceof Negation)
 				// cancel the two negations
 				return ((Negation)rhs).rhs;
+			if (rhs instanceof Multiplication || rhs instanceof Division) {
+				// We can send the negation down into the children, which are more
+				// likely to be able to cancel it or apply it to some constant.
+				
+				// Look for a negation or constant in both
+				NodeRef parToApply = findConstantOrNeg(rhs, false);
+				if (parToApply != null) {
+					Negation neg = new Negation();
+					if (parToApply.rightChild) {
+						neg.setRhs(parToApply.parent.rhs);
+						Valuable newRhs = neg.optimize(s, maxErr);
+						if (newRhs == null)
+							newRhs = neg;
+						parToApply.parent.setRhs(newRhs);
+					}else {
+						BinOp parent = (BinOp)parToApply.parent;
+						neg.setRhs(parent.lhs);
+						Valuable newRhs = neg.optimize(s, maxErr);
+						if (newRhs == null)
+							newRhs = neg;
+						parent.setLhs(newRhs);
+					}
+					return rhs;
+				}else {
+					// If no constant could be found, we will still pass the negation down
+					// (since it can be useful for optimizations for operations to see their
+					// actual applicable descendants rather than having them masked with a
+					// negation).
+					BinOp op = (BinOp)rhs;
+					setRhs(op.lhs);
+					op.setLhs(this);
+					return op;
+				}
+			}
+			return null;
+		}
+		
+		protected NodeRef findConstantOrNeg(Valuable start, boolean rightChild) {
+			// We can work with multiplication and division
+			if (start instanceof Constant || start instanceof Negation) {
+				return new NodeRef(start.parent, rightChild, false);
+			}else if (start instanceof Multiplication) {
+				Multiplication mult = (Multiplication)start;
+				NodeRef left = findConstantOrNeg(mult.lhs, false);
+				if (left != null)
+					return left;
+				return findConstantOrNeg(mult.rhs, true);
+			}else if (start instanceof Division) {
+				Division div = (Division)start;
+				NodeRef left = findConstantOrNeg(div.lhs, false);
+				if (left != null)
+					return left;
+				return findConstantOrNeg(div.rhs, true);
+			}
 			return null;
 		}
 	}
@@ -534,19 +591,19 @@ public class ExpressionParser {
 
 		// This code is very similar to the procedures used by Addition/Subtraction.
 		// I have not yet found a clean way to abstract it.
-		protected ConstantRef findConstant(Valuable start, boolean rightChild, boolean inverse) {
+		protected NodeRef findConstant(Valuable start, boolean rightChild, boolean inverse) {
 			// We can work with multiplication, division, and negation (which is multiply by -1)
 			if (start instanceof Constant) {
-				return new ConstantRef(start.parent, rightChild, inverse);
+				return new NodeRef(start.parent, rightChild, inverse);
 			}else if (start instanceof Multiplication) {
 				Multiplication mult = (Multiplication)start;
-				ConstantRef left = findConstant(mult.lhs, false, inverse);
+				NodeRef left = findConstant(mult.lhs, false, inverse);
 				if (left != null)
 					return left;
 				return findConstant(mult.rhs, true, inverse);
 			}else if (start instanceof Division) {
 				Division div = (Division)start;
-				ConstantRef left = findConstant(div.lhs, false, inverse);
+				NodeRef left = findConstant(div.lhs, false, inverse);
 				if (left != null)
 					return left;
 				return findConstant(div.rhs, true, !inverse);
@@ -578,10 +635,10 @@ public class ExpressionParser {
 			
 			// Very similar logic to optimizations done in Addition, but altered to suit Multiplication
 			// and Division
-			ConstantRef left = findConstant(lhs, false, false);
+			NodeRef left = findConstant(lhs, false, false);
 			if (left == null)
 				return null; // We need to find constants on both sides to perform this operation
-			ConstantRef right = findConstant(rhs, true, false);
+			NodeRef right = findConstant(rhs, true, false);
 			if (right == null)
 				return null;
 			
@@ -655,11 +712,27 @@ public class ExpressionParser {
 				Constant r = (Constant)rhs;
 				if (ExpressionParser.equals(r.val, 1, maxErr))
 					return lhs; // no need for the divide
+			}else if (rhs instanceof Division) {
+				// x / y / z = xz / y
+				Multiplication numerator = new Multiplication();
+				numerator.setLhs(lhs); // x
+				Division div = (Division)rhs;
+				numerator.setRhs(div.rhs); // z
+				Valuable numer = numerator.optimize(s, maxErr);
+				if (numer == null)
+					numer = numerator;
+				setLhs(numer);
+				// denominator stays the same
+				return this;
 			}
 			// If the numerator is some constant, we don't need to run optimizations through
 			// multiply (this also helps us avoid infinite recursion).
-			if (lhs instanceof Constant)
+			if (lhs instanceof Constant) {
+				// If the constant is a 0, then this is constant 0
+				if (ExpressionParser.equals(((Constant)lhs).val, 0, maxErr))
+					return lhs;
 				return null;
+			}
 			
 			Multiplication useMul = new Multiplication();
 			useMul.setLhs(lhs);
@@ -880,19 +953,39 @@ public class ExpressionParser {
 				double myBase = lhs.getValue(s);
 				double otBase;
 				Valuable exponent;
+				Valuable modInside = null;
 				if (rhs instanceof Exponentiation) {
 					Exponentiation exp = (Exponentiation)rhs;
 					otBase = exp.lhs.getValue(s);
 					exponent = exp.rhs;
 				}else if (rhs instanceof Root) {
 					Root root = (Root)rhs;
-					otBase = 1 / root.lhs.getValue(s);
-					exponent = root.rhs;
+					otBase = root.rhs.getValue(s);
+					Division div = new Division();
+					div.setLhs(new Constant(1));
+					div.setRhs(root.lhs);
+					modInside = div.optimize(s, maxErr);
+					if (modInside != null)
+						exponent = modInside;
+					else
+						exponent = div;
+				}else if (rhs instanceof Constant) {
+					Constant cons = (Constant)rhs;
+					otBase = cons.val;
+					exponent = new Constant(1);
 				}else
 					return null;
 				
 				if (ExpressionParser.equals(myBase, otBase, maxErr))
 					return exponent;
+				else if (modInside != null) {
+					// Repair the state as best as we can.
+					Root root = (Root)rhs;
+					Exponentiation newRhs = new Exponentiation();
+					newRhs.setLhs(root.rhs);
+					newRhs.setRhs(modInside);
+					return this;
+				}
 			}catch(Exception e) {
 				// We don't care besides the fact that the optimization cannot be performed
 			}
@@ -914,6 +1007,15 @@ public class ExpressionParser {
 
 		@Override
 		protected Valuable optimizeSpec(ExpressionSolver s, double maxErr) {
+			Logarithm log = new Logarithm();
+			log.setLhs(new Constant(2.7182818284590452353602874713527));
+			log.setRhs(this.rhs);
+			Valuable got = log.optimize(s, maxErr);
+			if (got != null)
+				return got;
+			
+			// Otherwise, restore the state of this
+			setRhs(rhs); // remind rhs that this is its parent
 			return null;
 		}
 	}
