@@ -99,7 +99,7 @@ public class ExpressionParser {
 					throw new RuntimeException("Malformed expression! Two consecutive numbers found without a separating operation.");
 				else if (prevLiteral != null)
 					segments.add(new Multiplication());
-				segments.add(new Constant(Double.parseDouble(token.value)));
+				segments.add(new Constant(Double.parseDouble(token.value), maxErr));
 				currLiteral = token.type;
 				break;
 			case OPEN_PAREN:
@@ -172,7 +172,9 @@ public class ExpressionParser {
 		
 		// Try to optimize if it is allowable
 		if (optimize) {
-			Valuable opt = seg.optimize(new ExpressionSolver(new String[] {}, new double[] {}), maxErr);
+			ExpressionSolver opter = new ExpressionSolver(new String[] {}, new double[] {});
+			opter.parse = this; // use the same max error as this
+			Valuable opt = seg.optimize(opter);
 			if (opt != null)
 				seg = opt;
 		}
@@ -193,7 +195,7 @@ public class ExpressionParser {
 			return true;
 		}
 		
-		public Valuable optimize(ExpressionSolver s, double maxErr) {
+		public Valuable optimize(ExpressionSolver s) {
 			return null;
 		}
 	}
@@ -220,12 +222,12 @@ public class ExpressionParser {
 		}
 		
 		@Override
-		public Valuable optimize(ExpressionSolver s, double maxErr) {
+		public Valuable optimize(ExpressionSolver s) {
 			// Optimize children, then optimize self
-			optimizeChildren(s, maxErr);
+			optimizeChildren(s);
 			
 			// Call operation-specific optimizations
-			Valuable got = optimizeSpec(s, maxErr);
+			Valuable got = optimizeSpec(s);
 			Valuable newThis = this;
 			if (got != null)
 				newThis = got;
@@ -234,7 +236,7 @@ public class ExpressionParser {
 			try {
 				double val = newThis.getValue(s);
 				// Pass the constant up to the parent instead of itself
-				return new Constant(val);
+				return new Constant(val, s.parse.maxErr);
 			}catch(UndefinedVarException e) {
 				// Don't do anything, no more optimizations possible.
 				if (newThis != this) {
@@ -246,8 +248,8 @@ public class ExpressionParser {
 			}
 		}
 		
-		protected void optimizeChildren(ExpressionSolver s, double maxErr) {
-			Valuable right = rhs.optimize(s, maxErr);
+		protected void optimizeChildren(ExpressionSolver s) {
+			Valuable right = rhs.optimize(s);
 			if (right != null)
 				setRhs(right);
 		}
@@ -264,15 +266,13 @@ public class ExpressionParser {
 		 * specific optimizations.
 		 * @param s an expression solver instance, typically a trivial one used exclusively
 		 * for finding whether an argument can resolve without any variables.
-		 * @param maxErr some optimizations need to make comparisons between double values.
-		 * As such, a maximum acceptable error is required.
 		 * @return one of three options:<ol>
 		 * <li>a more optimized object to replace this
 		 * <li>this, if an optimization was made to it
 		 * <li>null, if no optimizations were performed
 		 * </ol>
 		 */
-		protected Valuable optimizeSpec(ExpressionSolver s, double maxErr) {
+		protected Valuable optimizeSpec(ExpressionSolver s) {
 			return null;
 		}
 		
@@ -306,9 +306,9 @@ public class ExpressionParser {
 		}
 		
 		@Override
-		protected void optimizeChildren(ExpressionSolver s, double maxErr) {
-			super.optimizeChildren(s, maxErr);
-			Valuable left = lhs.optimize(s, maxErr);
+		protected void optimizeChildren(ExpressionSolver s) {
+			super.optimizeChildren(s);
+			Valuable left = lhs.optimize(s);
 			if (left != null)
 				setLhs(left);
 		}
@@ -379,7 +379,7 @@ public class ExpressionParser {
 		}
 		
 		@Override
-		protected Valuable optimizeSpec(ExpressionSolver s, double maxErr) {
+		protected Valuable optimizeSpec(ExpressionSolver s) {
 			// Addition is commutative and associative, which gives us some flexibility
 			// We perform two major calculations here:
 			// - First, we check for redundant operations (for example, x + 0 = x).
@@ -398,7 +398,7 @@ public class ExpressionParser {
 				none = (Constant)rhs;
 				other = lhs;
 			}
-			if (none != null && ExpressionParser.equals(none.val, 0, maxErr))
+			if (none != null && s.parse.equals(none.val, 0))
 				return other;
 			
 			// Since the children have already been optimized, we just need to focus on
@@ -475,13 +475,13 @@ public class ExpressionParser {
 		}
 
 		@Override
-		protected Valuable optimizeSpec(ExpressionSolver s, double maxErr) {
+		protected Valuable optimizeSpec(ExpressionSolver s) {
 			// Try to reuse the logic from add (since subtract is very similar)
 			Addition useAdd = new Addition();
 			useAdd.setLhs(lhs);
 			Negation neg = new Negation();
 			neg.setRhs(rhs);
-			Valuable right = neg.optimize(s, maxErr);
+			Valuable right = neg.optimize(s);
 			boolean optNeg; // We need to know if negation optimized in order to restore state
 			if (right == null) {
 				right = neg;
@@ -490,7 +490,7 @@ public class ExpressionParser {
 				optNeg = true;
 			
 			useAdd.setRhs(right);
-			Valuable opt = useAdd.optimizeSpec(s, maxErr);
+			Valuable opt = useAdd.optimizeSpec(s);
 			// If an optimization was made, we use it instead of this
 			if (opt != null)
 				return opt;
@@ -516,7 +516,7 @@ public class ExpressionParser {
 		}
 
 		@Override
-		protected Valuable optimizeSpec(ExpressionSolver s, double maxErr) {
+		protected Valuable optimizeSpec(ExpressionSolver s) {
 			if (rhs instanceof Negation)
 				// cancel the two negations
 				return ((Negation)rhs).rhs;
@@ -530,14 +530,14 @@ public class ExpressionParser {
 					Negation neg = new Negation();
 					if (parToApply.rightChild) {
 						neg.setRhs(parToApply.parent.rhs);
-						Valuable newRhs = neg.optimize(s, maxErr);
+						Valuable newRhs = neg.optimize(s);
 						if (newRhs == null)
 							newRhs = neg;
 						parToApply.parent.setRhs(newRhs);
 					}else {
 						BinOp parent = (BinOp)parToApply.parent;
 						neg.setRhs(parent.lhs);
-						Valuable newRhs = neg.optimize(s, maxErr);
+						Valuable newRhs = neg.optimize(s);
 						if (newRhs == null)
 							newRhs = neg;
 						parent.setLhs(newRhs);
@@ -614,7 +614,7 @@ public class ExpressionParser {
 		}
 		
 		@Override
-		protected Valuable optimizeSpec(ExpressionSolver s, double maxErr) {
+		protected Valuable optimizeSpec(ExpressionSolver s) {
 			// Check for redundant multiplication operation
 			// x * 1 = x
 			Constant cons = null;
@@ -627,9 +627,9 @@ public class ExpressionParser {
 				other = lhs;
 			}
 			if (cons != null) {
-				if (ExpressionParser.equals(cons.val, 1, maxErr))
+				if (s.parse.equals(cons.val, 1))
 					return other;
-				if (ExpressionParser.equals(cons.val, 0, maxErr))
+				if (s.parse.equals(cons.val, 0))
 					return cons;
 			}
 			
@@ -706,11 +706,11 @@ public class ExpressionParser {
 		}
 
 		@Override
-		protected Valuable optimizeSpec(ExpressionSolver s, double maxErr) {
+		protected Valuable optimizeSpec(ExpressionSolver s) {
 			// Dividing by 1 is a redundant operation
 			if (rhs instanceof Constant) {
 				Constant r = (Constant)rhs;
-				if (ExpressionParser.equals(r.val, 1, maxErr))
+				if (s.parse.equals(r.val, 1))
 					return lhs; // no need for the divide
 			}else if (rhs instanceof Division) {
 				// x / y / z = xz / y
@@ -718,7 +718,7 @@ public class ExpressionParser {
 				numerator.setLhs(lhs); // x
 				Division div = (Division)rhs;
 				numerator.setRhs(div.rhs); // z
-				Valuable numer = numerator.optimize(s, maxErr);
+				Valuable numer = numerator.optimize(s);
 				if (numer == null)
 					numer = numerator;
 				setLhs(numer);
@@ -729,7 +729,7 @@ public class ExpressionParser {
 			// multiply (this also helps us avoid infinite recursion).
 			if (lhs instanceof Constant) {
 				// If the constant is a 0, then this is constant 0
-				if (ExpressionParser.equals(((Constant)lhs).val, 0, maxErr))
+				if (s.parse.equals(((Constant)lhs).val, 0))
 					return lhs;
 				return null;
 			}
@@ -749,7 +749,7 @@ public class ExpressionParser {
 				r.setRhs(rhs);
 				right = r;
 			}
-			Valuable got = right.optimize(s, maxErr);
+			Valuable got = right.optimize(s);
 			boolean optInv; // We need to know if division optimized in order to restore state
 			if (got == null) {
 				got = right;
@@ -758,7 +758,7 @@ public class ExpressionParser {
 				optInv = true;
 			
 			useMul.setRhs(right);
-			Valuable opt = useMul.optimizeSpec(s, maxErr);
+			Valuable opt = useMul.optimizeSpec(s);
 			// If an optimization was made, we use it instead of this
 			if (opt != null)
 				return opt;
@@ -784,13 +784,13 @@ public class ExpressionParser {
 		}
 
 		@Override
-		protected Valuable optimizeSpec(ExpressionSolver s, double maxErr) {
+		protected Valuable optimizeSpec(ExpressionSolver s) {
 			// Redundant exponentiation: x^1 = x
 			if (rhs instanceof Constant) {
 				Constant r = (Constant)rhs;
-				if (ExpressionParser.equals(r.val, 1, maxErr))
+				if (s.parse.equals(r.val, 1))
 					return lhs;
-				else if (ExpressionParser.equals(r.val, 0, maxErr))
+				else if (s.parse.equals(r.val, 0))
 					return new Constant(1); // x^0 = 1
 			}
 			
@@ -801,7 +801,7 @@ public class ExpressionParser {
 				Exponentiation inner = (Exponentiation)lhs;
 				exponent.setLhs(inner.rhs);
 				exponent.setRhs(rhs);
-				Valuable exp = exponent.optimize(s, maxErr);
+				Valuable exp = exponent.optimize(s);
 				if (exp == null)
 					exp = exponent;
 				inner.setRhs(exp);
@@ -811,7 +811,7 @@ public class ExpressionParser {
 				Root inner = (Root)lhs;
 				exponent.setRhs(inner.lhs);
 				exponent.setLhs(rhs);
-				Valuable exp = exponent.optimize(s, maxErr);
+				Valuable exp = exponent.optimize(s);
 				if (exp == null)
 					exp = exponent;
 				this.setLhs(inner.rhs);
@@ -834,14 +834,14 @@ public class ExpressionParser {
 		}
 
 		@Override
-		protected Valuable optimizeSpec(ExpressionSolver s, double maxErr) {
+		protected Valuable optimizeSpec(ExpressionSolver s) {
 			// Reuse exponentiation's optimizations
 			Exponentiation useExp = new Exponentiation();
 			Division inv = new Division();
 			inv.setLhs(new Constant(1));
 			inv.setRhs(lhs);
 			useExp.setLhs(inv);
-			Valuable base = inv.optimizeSpec(s, maxErr);
+			Valuable base = inv.optimizeSpec(s);
 			boolean optInv; // We need to know if division optimized in order to restore state
 			if (base == null) {
 				base = inv;
@@ -850,7 +850,7 @@ public class ExpressionParser {
 				optInv = true;
 			
 			useExp.setRhs(base);
-			Valuable opt = useExp.optimizeSpec(s, maxErr);
+			Valuable opt = useExp.optimizeSpec(s);
 			// If an optimization was made, we use it instead of this
 			if (opt != null)
 				return opt;
@@ -876,7 +876,7 @@ public class ExpressionParser {
 		}
 
 		@Override
-		protected Valuable optimizeSpec(ExpressionSolver s, double maxErr) {
+		protected Valuable optimizeSpec(ExpressionSolver s) {
 			// There is a possible optimization for min and max, but I think it would be pretty
 			// obscure, so it may not be worth the time to check for it. The idea would be to
 			// match the two arms, and if they are equivalent except for some constant, then we
@@ -945,52 +945,48 @@ public class ExpressionParser {
 		}
 
 		@Override
-		protected Valuable optimizeSpec(ExpressionSolver s, double maxErr) {
+		protected Valuable optimizeSpec(ExpressionSolver s) {
 			// If the argument is an exponent or a root with the same base as
 			// this, then we can pull out the exponent and disregard this log
 			// and the base.
-			try {
-				double myBase = lhs.getValue(s);
-				double otBase;
-				Valuable exponent;
-				Valuable modInside = null;
-				if (rhs instanceof Exponentiation) {
-					Exponentiation exp = (Exponentiation)rhs;
-					otBase = exp.lhs.getValue(s);
-					exponent = exp.rhs;
-				}else if (rhs instanceof Root) {
-					Root root = (Root)rhs;
-					otBase = root.rhs.getValue(s);
-					Division div = new Division();
-					div.setLhs(new Constant(1));
-					div.setRhs(root.lhs);
-					modInside = div.optimize(s, maxErr);
-					if (modInside != null)
-						exponent = modInside;
-					else
-						exponent = div;
-				}else if (rhs instanceof Constant) {
-					Constant cons = (Constant)rhs;
-					otBase = cons.val;
-					exponent = new Constant(1);
-				}else
-					return null;
-				
-				if (ExpressionParser.equals(myBase, otBase, maxErr))
-					return exponent;
-				else if (modInside != null) {
-					// Repair the state as best as we can.
-					Root root = (Root)rhs;
-					Exponentiation newRhs = new Exponentiation();
-					newRhs.setLhs(root.rhs);
-					newRhs.setRhs(modInside);
-					return this;
-				}
-			}catch(Exception e) {
-				// We don't care besides the fact that the optimization cannot be performed
-			}
+			Valuable myBase = lhs;
+			Valuable otBase;
+			Valuable exponent;
+			Valuable modInside = null;
+			if (rhs instanceof Exponentiation) {
+				Exponentiation exp = (Exponentiation)rhs;
+				otBase = exp.lhs;
+				exponent = exp.rhs;
+			}else if (rhs instanceof Root) {
+				Root root = (Root)rhs;
+				otBase = root.rhs;
+				Division div = new Division();
+				div.setLhs(new Constant(1));
+				div.setRhs(root.lhs);
+				modInside = div.optimize(s);
+				if (modInside != null)
+					exponent = modInside;
+				else
+					exponent = div;
+			}else if (rhs instanceof Constant) {
+				otBase = rhs;
+				exponent = new Constant(1);
+			}else
+				return null;
 			
-			return null;
+			// If the outer base is equivalent to the nested base,
+			// then the exponent is the answer
+			if (myBase.equals(otBase))
+				return exponent;
+			else if (modInside != null) {
+				// Repair the state as best as we can.
+				Root root = (Root)rhs;
+				Exponentiation newRhs = new Exponentiation();
+				newRhs.setLhs(root.rhs);
+				newRhs.setRhs(modInside);
+				return this;
+			}else
+				return null;
 		}
 	}
 	
@@ -1006,11 +1002,11 @@ public class ExpressionParser {
 		}
 
 		@Override
-		protected Valuable optimizeSpec(ExpressionSolver s, double maxErr) {
+		protected Valuable optimizeSpec(ExpressionSolver s) {
 			Logarithm log = new Logarithm();
 			log.setLhs(new Constant(2.7182818284590452353602874713527));
 			log.setRhs(this.rhs);
-			Valuable got = log.optimize(s, maxErr);
+			Valuable got = log.optimize(s);
 			if (got != null)
 				return got;
 			
@@ -1058,9 +1054,15 @@ public class ExpressionParser {
 	
 	protected static class Constant extends Valuable {
 		protected double val;
+		protected double maxErr;
 		
 		public Constant(double val) {
 			this.val = val;
+			this.maxErr = 0.0001;
+		}
+		public Constant(double val, double maxErr) {
+			this.val = val;
+			this.maxErr = maxErr;
 		}
 		
 		@Override
@@ -1073,8 +1075,7 @@ public class ExpressionParser {
 			if (o == null || !(o instanceof Constant))
 				return false;
 			Constant other = (Constant)o;
-			final double ETA = 0.001;
-			return val + ETA > other.val && other.val + ETA > val;
+			return val + maxErr > other.val && other.val + maxErr > val;
 		}
 	}
 	
@@ -1098,7 +1099,7 @@ public class ExpressionParser {
 		}
 	}
 	
-	protected static boolean equals(double x, double y, double maxErr) {
+	protected boolean equals(double x, double y) {
 		return x + maxErr > y && y + maxErr > x;
 	}
 

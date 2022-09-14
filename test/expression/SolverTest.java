@@ -9,13 +9,13 @@ import expression.ExpressionParser.*;
 
 class SolverTest {
 	static ExpressionSolver solve;
-	static double maxErr = 0.0001;
 	
 	@BeforeAll
 	static void setup() {
 		String[] vars = {"pi", "e"};
 		double[] vals = {3.14159265, 2.71828};
 		solve = new ExpressionSolver(vars, vals);
+		solve.parse.maxErr = 0.0001;
 	}
 	
 	@Test
@@ -39,7 +39,7 @@ class SolverTest {
 		right.setLhs(square);
 		right.setRhs(new Constant(3));
 		add.setRhs(right);
-		assertTrue(ExpressionParser.equals(38.31370849898476, solve.eval(add), maxErr));
+		assertTrue(solve.parse.equals(38.31370849898476, solve.eval(add)));
 	}
 
 	@Test
@@ -50,7 +50,7 @@ class SolverTest {
 		solve.parse.optimize = false;
 		double nonopt = solve.evalString(expression);
 		solve.parse.optimize = true;
-		assertTrue(ExpressionParser.equals(opt, nonopt, maxErr));
-		assertTrue(ExpressionParser.equals(opt, 1, maxErr));
+		assertTrue(solve.parse.equals(opt, nonopt));
+		assertTrue(solve.parse.equals(opt, 1));
 	}
 }

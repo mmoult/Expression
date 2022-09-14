@@ -367,6 +367,7 @@ class OptimizationsTest {
 	@Test
 	void sumLogsShuffled() {
 		// lnx + ylogy + ylogx + lny = ln(x*y) + 5log(x*y)
+		fail("Not implemented yet!");
 	}
 	
 	@Test
