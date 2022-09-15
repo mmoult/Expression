@@ -633,6 +633,68 @@ public class ExpressionParser {
 					return cons;
 			}
 			
+			// Check for collapsible division
+			Division div = null;
+			other = null;
+			boolean rightChild = true;
+			if (lhs instanceof Division) {
+				div = (Division)lhs;
+				if (rhs instanceof Division) {
+					Division div2 = (Division)rhs;
+					// Try to combine numerators with each other
+					// and denominators with each other.
+					// If there is simplification from at least one,
+					// keep the result.
+					Multiplication numerator = new Multiplication();
+					numerator.setLhs(div.lhs);
+					numerator.setRhs(div2.lhs);
+					Valuable numer = numerator.optimize(s);
+					Multiplication denominator = new Multiplication();
+					denominator.setLhs(div.rhs);
+					denominator.setRhs(div2.rhs);
+					Valuable denom = denominator.optimize(s);
+					if (numer == null && denom == null) {
+						// this transformation was not helpful, so undo it
+						div.setLhs(div.lhs);
+						div.setRhs(div.rhs);
+						div2.setLhs(div2.lhs);
+						div2.setRhs(div2.rhs);
+					}else {
+						// We can reuse div instead of construction a new Division object
+						if (numer == null)
+							numer = numerator;
+						div.setLhs(numer);
+						if (denom == null)
+							denom = denominator;
+						div.setRhs(denom);
+						return div;
+					}
+				}
+				other = rhs;
+				rightChild = false;
+			}else if (rhs instanceof Division) {
+				div = (Division)rhs;
+				other = lhs;
+			}
+			if (div != null) {
+				// Try to simplify the multiplication by combining other with the dividend
+				Multiplication combine = new Multiplication();
+				combine.setLhs(other);
+				combine.setRhs(div.lhs);
+				Valuable dividend = combine.optimize(s);
+				// If it simplified any, we will use it.
+				if (dividend != null) {
+					div.setLhs(dividend);
+					return div;
+				}
+				// Otherwise, we need to restore state
+				div.setLhs(combine.rhs);
+				if (rightChild)
+					this.setRhs(div);
+				else
+					this.setLhs(div);
+			}
+			
 			// Very similar logic to optimizations done in Addition, but altered to suit Multiplication
 			// and Division
 			NodeRef left = findConstant(lhs, false, false);
@@ -840,7 +902,7 @@ public class ExpressionParser {
 			Division inv = new Division();
 			inv.setLhs(new Constant(1));
 			inv.setRhs(lhs);
-			useExp.setLhs(inv);
+			useExp.setLhs(rhs);
 			Valuable base = inv.optimizeSpec(s);
 			boolean optInv; // We need to know if division optimized in order to restore state
 			if (base == null) {

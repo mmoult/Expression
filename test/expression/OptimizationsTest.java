@@ -345,17 +345,40 @@ class OptimizationsTest {
 	@Test
 	void combineRoots() {
 		Expression act = solve.parseString("z r (y r x)");
-		// z r (y r x) = (y r x) ^ 1/z = (x^(1/y))^(1/z) = x^(1/(y*z))
+		// z r (y r x) = (y r x) ^ 1/z = (x^(1/y))^(1/z) = x^(1/y * 1/z) = x^(1/(zy))
 		Exponentiation exp = new Exponentiation();
 		exp.setLhs(new Variable("x"));
 		Division div = new Division();
 		div.setLhs(new Constant(1));
 		Multiplication mult = new Multiplication();
-		mult.setLhs(new Variable("y"));
-		mult.setRhs(new Variable("z"));
+		mult.setLhs(new Variable("z"));
+		mult.setRhs(new Variable("y"));
 		div.setRhs(mult);
 		exp.setRhs(div);
 		assertEquals(exp, act);
+	}
+	
+	@Test
+	void combineInverseAndMultiplication() {
+		Expression act = solve.parseString("x * (1 / y)");
+		// -> (x * 1)/y -> x/y
+		Division div = new Division();
+		div.setLhs(new Variable("x"));
+		div.setRhs(new Variable("y"));
+		assertEquals(div, act);
+	}
+	
+	@Test
+	void combineMultipliedDenominators() {
+		Expression act = solve.parseString("(2 / x) * (3 / y)");
+		// -> (2 * 3)/(x * y) -> 6/xy
+		Division div = new Division();
+		div.setLhs(new Constant(6));
+		Multiplication denom = new Multiplication();
+		denom.setLhs(new Variable("x"));
+		denom.setRhs(new Variable("y"));
+		div.setRhs(denom);
+		assertEquals(div, act);
 	}
 	
 	@Test
