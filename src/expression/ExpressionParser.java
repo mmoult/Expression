@@ -346,6 +346,8 @@ public class ExpressionParser {
 	}
 	
 	protected static class Addition extends BinOp {
+		protected boolean optChanges = false;
+		
 		@Override
 		public double getValue(ExpressionSolver s) {
 			return lhs.getValue(s) + rhs.getValue(s);
@@ -380,6 +382,7 @@ public class ExpressionParser {
 		
 		@Override
 		protected Valuable optimizeSpec(ExpressionSolver s) {
+			optChanges = false;
 			// Addition is commutative and associative, which gives us some flexibility
 			// We perform two major calculations here:
 			// - First, we check for redundant operations (for example, x + 0 = x).
@@ -406,36 +409,130 @@ public class ExpressionParser {
 			// In other words, there should not be multiple constants to combine on a
 			// single side, since those checks were already done.
 			NodeRef left = findConstant(lhs, false, false);
-			if (left == null)
-				return null; // We need to find constants on both sides to perform this operation
-			NodeRef right = findConstant(rhs, true, false);
-			if (right == null)
-				return null;
+			if (left != null) {
+				NodeRef right = findConstant(rhs, true, false);
+				if (right != null) {
+					// Collapse the constants, bringing from left to right
+					// Both parents must be BinOp, since negation already ran its constant collapse optimization
+					Constant rightConst;
+					if (right.rightChild) {
+						rightConst = (Constant)right.parent.rhs;
+					}else
+						rightConst = (Constant)((BinOp)right.parent).lhs;
+					
+					double leftConst;
+					BinOp parent = (BinOp)left.parent;
+					if (left.rightChild)
+						leftConst = ((Constant)parent.rhs).val;
+					else
+						// opposite logic to just above
+						leftConst = ((Constant)parent.lhs).val;
+					boolean thisParent = !replaceParent(parent, !left.rightChild);
+					// Apply left to right
+					if (left.reverse ^ right.reverse)
+						leftConst *= -1;
+					rightConst.val += leftConst;
+					
+					if (thisParent) // if this was the parent of the left child, 
+						return rhs; // then we need to replace it with the right
+					optChanges = true;
+				}
+			}
 			
-			// Collapse the constants, bringing from left to right
-			// Both parents must be BinOp, since negation already ran its constant collapse optimization
-			Constant rightConst;
-			if (right.rightChild) {
-				rightConst = (Constant)right.parent.rhs;
-			}else
-				rightConst = (Constant)((BinOp)right.parent).lhs;
+			// We need to look through the children for any logs
+			// Logs of the same base can be combined. ln(5) + ln(2) = ln(10)
+			Valuable res = collapseLogs(this, s);
+			if (res != null)
+				return res;
 			
-			double leftConst;
-			BinOp parent = (BinOp)left.parent;
-			if (left.rightChild)
-				leftConst = ((Constant)parent.rhs).val;
-			else
-				// opposite logic to just above
-				leftConst = ((Constant)parent.lhs).val;
-			boolean thisParent = !replaceParent(parent, !left.rightChild);
-			// Apply left to right
-			if (left.reverse ^ right.reverse)
-				leftConst *= -1;
-			rightConst.val += leftConst;
-			
-			if (thisParent) // if this was the parent of the left child, 
-				return rhs; // then we need to replace it with the right
-			return this; // otherwise, changes were made in place
+			if (optChanges)
+				return this;
+			return null;
+		}
+		
+		protected Valuable collapseLogs(BinOp start, ExpressionSolver s) {
+			// Similarly to finding a constant,
+			// we can look through negations, additions, and subtractions
+			List<NodeRef> logs = new ArrayList<>();
+			collapseLogs(s, logs, start.lhs, false, false);
+			// It is not possible for the start to need to be replaced since start
+			// must be a BinOp, and its left arm is analyzed first, if the left arm
+			// is a log, that log would be amended rather than discarded (since it
+			// would be seen first and only logs seen after logs of the same base
+			// are discarded).
+			// However, we need to check for the right arm since it is feasible
+			// that the right side is a log of the same base as the left side:
+			//      +        -> ln (4 * 2) =
+			// ln 4   ln 2      ln 8
+			boolean replaced = collapseLogs(s, logs, start.rhs, true, false);
+			if (!replaced || start.lhs.parent != this) // if replacement failed
+				return start.lhs; // must not pass rhs, which needs to be discarded
+				
+			return null;
+		}
+		protected boolean collapseLogs(ExpressionSolver s, List<NodeRef> logs,
+				Valuable op, boolean rightChild, boolean negated) {
+			if (op instanceof Logarithm || op instanceof NatLog) {
+				Valuable base;
+				if (op instanceof NatLog)
+					base = new Constant(Math.E);
+				else
+					base = ((Logarithm)op).lhs;
+				// Look through the list of logs to find if this base is already represented
+				for (NodeRef ref: logs) {
+					Valuable log;
+					if (ref.rightChild)
+						log = ((Op)ref.parent).rhs;
+					else
+						log = ((BinOp)ref.parent).lhs;
+					
+					Valuable otherBase;
+					if (log instanceof Logarithm)
+						otherBase = ((Logarithm)log).lhs;
+					else
+						otherBase = new Constant(Math.E);
+					if (base.equals(otherBase)) {
+						// Now we must combine op into the found other
+						BinOp arg;
+						if (ref.reverse == negated)
+							arg = new Multiplication();
+						else
+							arg = new Division();
+						arg.setLhs(((Op)log).rhs);
+						arg.setRhs(((Op)op).rhs);
+						Valuable opted = arg.optimize(s);
+						if (opted == null)
+							opted = arg;
+						((Op)log).setRhs(opted);
+						// I cannot think of any optimization where modifying the operation to
+						// an optimized multiplication would require a re-optimization of the
+						// log. Potentially, if xlog(x) + xlog(x) -> xlog(x*x) -> xlog(x^2) -> 2,
+						// but right now I don't do the optimization of x*x -> x^2. Since
+						// exponentiation is generally slower than multiplication, I don't know
+						// if I ever will add that optimization. 
+						
+						// Now the fun part, where we discard op from the tree
+						optChanges = true;
+						return replaceParent((BinOp)op.parent, !rightChild);
+					}
+				}
+				// If we did not find the base of this log, then add this to the list
+				logs.add(new NodeRef(op.parent, rightChild, negated));
+			}else if (op instanceof Addition) {
+				Addition add = (Addition)op;
+				collapseLogs(s, logs, add.lhs, false, negated);
+				collapseLogs(s, logs, add.rhs, true, negated);
+			}else if (op instanceof Subtraction) {
+				Subtraction sub = (Subtraction)op;
+				collapseLogs(s, logs, sub.lhs, false, negated);
+				collapseLogs(s, logs, sub.rhs, true, !negated);
+			}else if (op instanceof Negation) {
+				collapseLogs(s, logs, ((Negation)op).rhs, true, !negated);
+			}
+			// If op is not a log, it is not possible for replacement to fail.
+			// In other words, replacement can only fail at the top-level call
+			// of this function
+			return true;
 		}
 		
 		protected boolean replaceParent(BinOp parent, boolean rightReplace) {
@@ -476,6 +573,10 @@ public class ExpressionParser {
 
 		@Override
 		protected Valuable optimizeSpec(ExpressionSolver s) {
+			// If lhs is equivalent to rhs, then they cancel out to 0
+			if (lhs.equals(rhs))
+				return new Constant(0);
+			
 			// Try to reuse the logic from add (since subtract is very similar)
 			Addition useAdd = new Addition();
 			useAdd.setLhs(lhs);
@@ -769,6 +870,15 @@ public class ExpressionParser {
 
 		@Override
 		protected Valuable optimizeSpec(ExpressionSolver s) {
+			// If the numerator is some constant, we don't need to run optimizations through
+			// multiply (this also helps us avoid infinite recursion).
+			if (lhs instanceof Constant) {
+				// If the constant is a 0, then this is constant 0
+				if (s.parse.equals(((Constant)lhs).val, 0))
+					return lhs;
+				return null;
+			}
+			
 			// Dividing by 1 is a redundant operation
 			if (rhs instanceof Constant) {
 				Constant r = (Constant)rhs;
@@ -787,14 +897,9 @@ public class ExpressionParser {
 				// denominator stays the same
 				return this;
 			}
-			// If the numerator is some constant, we don't need to run optimizations through
-			// multiply (this also helps us avoid infinite recursion).
-			if (lhs instanceof Constant) {
-				// If the constant is a 0, then this is constant 0
-				if (s.parse.equals(((Constant)lhs).val, 0))
-					return lhs;
-				return null;
-			}
+			// If the numerator and denominator are equivalent, the result is 1
+			if (lhs.equals(rhs))
+				return new Constant(1);
 			
 			Multiplication useMul = new Multiplication();
 			useMul.setLhs(lhs);
@@ -1066,7 +1171,7 @@ public class ExpressionParser {
 		@Override
 		protected Valuable optimizeSpec(ExpressionSolver s) {
 			Logarithm log = new Logarithm();
-			log.setLhs(new Constant(2.7182818284590452353602874713527));
+			log.setLhs(new Constant(Math.E));
 			log.setRhs(this.rhs);
 			Valuable got = log.optimize(s);
 			if (got != null)

@@ -238,6 +238,12 @@ class OptimizationsTest {
 	}
 	
 	@Test
+	void cancelDivisionToOne() {
+		Expression e = solve.parseString("(x + 2y - cos n) / (x + 2y - cos n)");
+		assertEquals(new Constant(1), e);
+	}
+	
+	@Test
 	void foldConstantsTopDivide() {
 		// Some complications may arise from having the constant at the top level, since
 		// there is no parent to reference
@@ -383,29 +389,80 @@ class OptimizationsTest {
 	
 	@Test
 	void sumLogsSimple() {
-		// ylogx + ylogy + lnx + lny = 5log(x*y) + ln(x*y)
-		fail("Not implemented yet!");
+		// ylogx + ylogy + lnx + lny = ylog(x*y) + ln(x*y)
+		Expression act = solve.parseString("y log x + y log y + ln x + ln y");
+		Addition add = new Addition();
+		Logarithm left = new Logarithm();
+		left.setLhs(new Variable("y"));
+		Multiplication larg = new Multiplication();
+		larg.setLhs(new Variable("x"));
+		larg.setRhs(new Variable("y"));
+		left.setRhs(larg);
+		NatLog right = new NatLog();
+		Multiplication rarg = new Multiplication();
+		rarg.setLhs(new Variable("x"));
+		rarg.setRhs(new Variable("y"));
+		right.setRhs(rarg);
+		add.setLhs(left);
+		add.setRhs(right);
+		assertEquals(add, act);
 	}
 	
 	@Test
 	void sumLogsShuffled() {
-		// lnx + ylogy + ylogx + lny = ln(x*y) + 5log(x*y)
-		fail("Not implemented yet!");
+		// lnx + ylogy + ylogx + lny = ln(x*y) + ylog(y*x)
+		Expression act = solve.parseString("ln x + y log y + y log x + ln y");
+		Addition add = new Addition();
+		NatLog left = new NatLog();
+		Multiplication rarg = new Multiplication();
+		rarg.setLhs(new Variable("x"));
+		rarg.setRhs(new Variable("y"));
+		left.setRhs(rarg);
+		add.setLhs(left);
+		Logarithm right = new Logarithm();
+		right.setLhs(new Variable("y"));
+		Multiplication larg = new Multiplication();
+		larg.setLhs(new Variable("y"));
+		larg.setRhs(new Variable("x"));
+		right.setRhs(larg);
+		add.setRhs(right);
+		assertEquals(add, act);
 	}
 	
 	@Test
 	void subtractLogs() {
-		// ylogx - ylogz + lnx - lny = 
-		fail("Not implemented yet!");
+		// ylogx - ylogz + lnx - lny = ylog(x/z) + ln(x/y)
+		Expression act = solve.parseString("y log x - y log z + ln x - ln y");
+		Addition add = new Addition();
+		Logarithm log = new Logarithm();
+		log.setLhs(new Variable("y"));
+		Division larg = new Division();
+		larg.setLhs(new Variable("x"));
+		larg.setRhs(new Variable("z"));
+		log.setRhs(larg);
+		add.setLhs(log);
+		NatLog nat = new NatLog();
+		Division rarg = new Division();
+		rarg.setLhs(new Variable("x"));
+		rarg.setRhs(new Variable("y"));
+		nat.setRhs(rarg);
+		add.setRhs(nat);
+		assertEquals(add, act);
 	}
+	
+	// TODO: Should also include a test since y^1 = y
 	
 	@Test
 	void multiplyExponentiations() {
+		// The exponentiation combination logic is very similar to the log combo logic.
+		// As such, I cannot be bothered to test it thoroughly again.
+		Expression act = solve.parseString("x^2 * (8 * x^8)");
 		fail("Not implemented yet!");
 	}
 	
 	@Test
 	void divideExponentiations() {
+		Expression act = solve.parseString("(y^2 / (x^4 * z)) / y^d");
 		fail("Not implemented yet!");
 	}
 
