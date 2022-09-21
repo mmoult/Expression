@@ -267,7 +267,7 @@ class OptimizationsTest {
 	
 	@Test
 	void collapseNegations() {
-		Expression e = solve.parseString("--x");
+		Expression e = solve.parseString("-(-x)");
 		assertEquals(new Variable("x"), e);
 	}
 	

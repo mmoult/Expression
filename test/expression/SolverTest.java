@@ -53,4 +53,15 @@ class SolverTest {
 		assertTrue(solve.parse.equals(opt, nonopt));
 		assertTrue(solve.parse.equals(opt, 1));
 	}
+	
+	@Test
+	void integrationPrecedence() {
+		String expression = "6 / 2(4 - 1)";
+		double opt = solve.evalString(expression);
+		solve.parse.optimize = false;
+		double nonopt = solve.evalString(expression);
+		solve.parse.optimize = true;
+		assertTrue(solve.parse.equals(opt, nonopt));
+		assertTrue(solve.parse.equals(opt, 9));
+	}
 }

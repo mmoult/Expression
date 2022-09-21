@@ -145,12 +145,15 @@ public class ExpressionParser {
 		List<Integer> list = new ArrayList<>(precs);
 		Collections.reverse(list);
 		for (Integer prec: list) {
-			// Iterate backwards through the segment list indices
-			for (int i = segments.size() - 1; i >= 0; i--) {
+			// Iterate through the segment list indices
+			for (int i = 0; i < segments.size(); i++) {
 				Valuable seg = segments.get(i);
-				if (!seg.usable() && seg.getPrecedence() == prec.intValue())
+				if (!seg.usable() && seg.getPrecedence() == prec.intValue()) {
 					// matching precedence allows application
-					seg.apply(segments, i);
+					if (seg.apply(segments, i))
+						// if the segment took a left argument, redo the current index
+						i--;
+				}
 			}
 		}
 		// If there is more than one segment remaining, we have an error
@@ -189,7 +192,16 @@ public class ExpressionParser {
 			return 0;
 		}
 		
-		public void apply(List<Valuable> segments, int selfIndex) {}
+		/**
+		 * Apply necessary arguments.
+		 * @param segments the list of all contiguous segments
+		 * @param selfIndex the index of this
+		 * @return whether this took a left argument, or in other words, whether the application
+		 * caused necessitates another analysis of the same list index
+		 */
+		public boolean apply(List<Valuable> segments, int selfIndex) {
+			return false;
+		}
 		
 		public boolean usable() {
 			return true;
@@ -205,8 +217,9 @@ public class ExpressionParser {
 		protected Valuable rhs = null;
 		
 		@Override
-		public void apply(List<Valuable> segments, int selfIndex) {
+		public boolean apply(List<Valuable> segments, int selfIndex) {
 			setRhs(segments.remove(selfIndex + 1));
+			return false;
 		}
 		
 		public void setRhs(Valuable rhs) {
@@ -288,9 +301,10 @@ public class ExpressionParser {
 		protected Valuable lhs = null;
 		
 		@Override
-		public void apply(List<Valuable> segments, int selfIndex) {
+		public boolean apply(List<Valuable> segments, int selfIndex) {
 			super.apply(segments, selfIndex);
 			setLhs(segments.remove(selfIndex - 1));
+			return true;
 		}
 		
 		public void setLhs(Valuable lhs) {
@@ -513,7 +527,13 @@ public class ExpressionParser {
 						
 						// Now the fun part, where we discard op from the tree
 						optChanges = true;
-						return replaceParent((BinOp)op.parent, !rightChild);
+						Op parent = op.parent;
+						// the parent could be a negation
+						while (parent instanceof Negation) {
+							rightChild = parent.parent.rhs == parent;
+							parent = parent.parent;
+						}
+						return replaceParent((BinOp)parent, !rightChild);
 					}
 				}
 				// If we did not find the base of this log, then add this to the list
@@ -527,7 +547,7 @@ public class ExpressionParser {
 				collapseLogs(s, logs, sub.lhs, false, negated);
 				collapseLogs(s, logs, sub.rhs, true, !negated);
 			}else if (op instanceof Negation) {
-				collapseLogs(s, logs, ((Negation)op).rhs, true, !negated);
+				return collapseLogs(s, logs, ((Negation)op).rhs, true, !negated);
 			}
 			// If op is not a log, it is not possible for replacement to fail.
 			// In other words, replacement can only fail at the top-level call
@@ -613,7 +633,7 @@ public class ExpressionParser {
 		
 		@Override
 		public int getPrecedence() {
-			return 5;
+			return 6;
 		}
 
 		@Override

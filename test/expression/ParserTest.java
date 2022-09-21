@@ -36,14 +36,14 @@ class ParserTest {
 		Addition add = new Addition();
 		add.setLhs(new Constant(4.81));
 		add.setRhs(new Variable("x"));
-		Division div = new Division();
-		div.setLhs(add);
+		Multiplication mult = new Multiplication();
+		mult.setLhs(new Constant(3));
+		mult.setRhs(add);
+		Division exp = new Division();
+		exp.setLhs(mult);
 		Cosine cos = new Cosine();
 		cos.setRhs(new Variable("rads"));
-		div.setRhs(cos);
-		Multiplication exp = new Multiplication();
-		exp.setLhs(new Constant(3.0));
-		exp.setRhs(div);
+		exp.setRhs(cos);
 		assertEquals(exp, act);
 	}
 	
@@ -98,16 +98,16 @@ class ParserTest {
 		Sine sin = new Sine();
 		sin.setRhs(neg);
 		exp.setLhs(sin);
-		Addition left = new Addition();
-		left.setLhs(new Constant(2));
-		Addition right = new Addition();
-		right.setRhs(new Constant(1));
 		Multiplication mult = new Multiplication();
 		mult.setLhs(new Constant(4));
 		mult.setRhs(new Constant(3));
-		right.setLhs(mult);
-		left.setRhs(right);
-		exp.setRhs(left);
+		Addition left = new Addition();
+		left.setLhs(new Constant(2));
+		left.setRhs(mult);
+		Addition right = new Addition();
+		right.setLhs(left);
+		right.setRhs(new Constant(1));
+		exp.setRhs(right);
 		assertEquals(exp, act);
 	}
 	
@@ -141,6 +141,31 @@ class ParserTest {
 		add.setRhs(new Variable("y"));
 		right.setRhs(add);
 		exp.setRhs(right);
+		assertEquals(exp, act);
+	}
+	
+	@Test
+	void leftAssociative() { // a - b + c - d
+		List<Token> inp = List.of(tok(Token.Type.IDENTIFIER, "a"),
+								  tok(Token.Type.MINUS),
+								  tok(Token.Type.IDENTIFIER, "b"),
+								  tok(Token.Type.PLUS),
+								  tok(Token.Type.IDENTIFIER, "c"),
+								  tok(Token.Type.MINUS),
+								  tok(Token.Type.IDENTIFIER, "d"));
+		// To get the desired result, this needs to be evaluated with left-evaluation.
+		// Otherwise, we get a - (b + c - d), which is not equal to the expected
+		// (a - b) + (c - d) or ((a - b) + c) - d
+		Expression act = parse.parse(inp);
+		Subtraction exp = new Subtraction();
+		exp.setRhs(new Variable("d"));
+		Addition add = new Addition();
+		add.setRhs(new Variable("c"));
+		Subtraction sub = new Subtraction();
+		sub.setLhs(new Variable("a"));
+		sub.setRhs(new Variable("b"));
+		add.setLhs(sub);
+		exp.setLhs(add);
 		assertEquals(exp, act);
 	}
 	
