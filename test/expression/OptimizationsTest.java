@@ -450,20 +450,64 @@ class OptimizationsTest {
 		assertEquals(add, act);
 	}
 	
-	// TODO: Should also include a test since y^1 = y
-	
 	@Test
 	void multiplyExponentiations() {
 		// The exponentiation combination logic is very similar to the log combo logic.
 		// As such, I cannot be bothered to test it thoroughly again.
 		Expression act = solve.parseString("x^2 * (8 * x^8)");
-		fail("Not implemented yet!");
+		Multiplication mult = new Multiplication();
+		mult.setRhs(new Constant(8));
+		Exponentiation xPow = new Exponentiation();
+		xPow.setLhs(new Variable("x"));
+		xPow.setRhs(new Constant(10));
+		mult.setLhs(xPow);
+		assertEquals(mult, act);
+	}
+	
+	@Test
+	void multiplyExponentiationsAndBase() {
+		// y^2 * y = y^3
+		Expression act = solve.parseString("y^3 * y");
+		Exponentiation exp = new Exponentiation();
+		exp.setLhs(new Variable("y"));
+		exp.setRhs(new Constant(4));
+		assertEquals(exp, act);
 	}
 	
 	@Test
 	void divideExponentiations() {
 		Expression act = solve.parseString("(y^2 / (x^4 * z)) / y^d");
-		fail("Not implemented yet!");
+		Exponentiation expo = new Exponentiation();
+		expo.setLhs(new Variable("y"));
+		Subtraction sub = new Subtraction();
+		sub.setLhs(new Constant(2));
+		sub.setRhs(new Variable("d"));
+		expo.setRhs(sub);
+		Division exp = new Division();
+		exp.setLhs(expo);
+		Multiplication mult = new Multiplication();
+		Exponentiation left = new Exponentiation();
+		left.setLhs(new Variable("x"));
+		left.setRhs(new Constant(4));
+		mult.setLhs(left);
+		mult.setRhs(new Variable("z"));
+		exp.setRhs(mult);
+		assertEquals(exp, act);
+	}
+	
+	@Test
+	void multiplyExponentiationAndRoot() {
+		Expression act = solve.parseString("x r y * y ^ z");
+		Exponentiation exp = new Exponentiation();
+		exp.setLhs(new Variable("y"));
+		Addition add = new Addition();
+		Division div = new Division();
+		div.setLhs(new Constant(1));
+		div.setRhs(new Variable("x"));
+		add.setLhs(div);
+		add.setRhs(new Variable("z"));
+		exp.setRhs(add);
+		assertEquals(exp, act);
 	}
 
 }

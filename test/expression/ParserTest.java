@@ -170,6 +170,28 @@ class ParserTest {
 	}
 	
 	@Test
+	void multRootAndExp() { // x r y * y ^ z
+		List<Token> inp = List.of(tok(Token.Type.IDENTIFIER, "x"),
+				  				  tok(Token.Type.ROOT),
+				  				  tok(Token.Type.IDENTIFIER, "y"),
+				  				  tok(Token.Type.MULTIPLY),
+				  				  tok(Token.Type.IDENTIFIER, "y"),
+				  				  tok(Token.Type.EXPONENT),
+				  				  tok(Token.Type.IDENTIFIER, "z"));
+		Expression act = parse.parse(inp);
+		Multiplication exp = new Multiplication();
+		Root root = new Root();
+		root.setLhs(new Variable("x"));
+		root.setRhs(new Variable("y"));
+		exp.setLhs(root);
+		Exponentiation right = new Exponentiation();
+		right.setLhs(new Variable("y"));
+		right.setRhs(new Variable("z"));
+		exp.setRhs(right);
+		assertEquals(exp, act);
+	}
+	
+	@Test
 	void badImplicit() { // 3 4
 		List<Token> inp = List.of(tok(Token.Type.NUMBER, "3"), tok(Token.Type.NUMBER, "4"));
 		assertThrows(RuntimeException.class, () -> {parse.parse(inp);});

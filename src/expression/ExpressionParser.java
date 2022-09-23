@@ -357,6 +357,13 @@ public class ExpressionParser {
 			this.rightChild = rightChild;
 			this.reverse = reverse;
 		}
+		
+		public Valuable getNode() {
+			if (rightChild)
+				return parent.rhs;
+			else
+				return ((BinOp)parent).lhs;
+		}
 	}
 	
 	protected static class Addition extends BinOp {
@@ -434,14 +441,8 @@ public class ExpressionParser {
 					}else
 						rightConst = (Constant)((BinOp)right.parent).lhs;
 					
-					double leftConst;
-					BinOp parent = (BinOp)left.parent;
-					if (left.rightChild)
-						leftConst = ((Constant)parent.rhs).val;
-					else
-						// opposite logic to just above
-						leftConst = ((Constant)parent.lhs).val;
-					boolean thisParent = !replaceParent(parent, !left.rightChild);
+					double leftConst = ((Constant)left.getNode()).val;
+					boolean thisParent = !replaceParent((BinOp)left.parent, !left.rightChild);
 					// Apply left to right
 					if (left.reverse ^ right.reverse)
 						leftConst *= -1;
@@ -494,11 +495,7 @@ public class ExpressionParser {
 					base = ((Logarithm)op).lhs;
 				// Look through the list of logs to find if this base is already represented
 				for (NodeRef ref: logs) {
-					Valuable log;
-					if (ref.rightChild)
-						log = ((Op)ref.parent).rhs;
-					else
-						log = ((BinOp)ref.parent).lhs;
+					Valuable log = ref.getNode();
 					
 					Valuable otherBase;
 					if (log instanceof Logarithm)
@@ -549,9 +546,9 @@ public class ExpressionParser {
 			}else if (op instanceof Negation) {
 				return collapseLogs(s, logs, ((Negation)op).rhs, true, !negated);
 			}
-			// If op is not a log, it is not possible for replacement to fail.
-			// In other words, replacement can only fail at the top-level call
-			// of this function
+			// Addition and Subtraction cannot fail, since replacement can only fail at
+			// the top level and if an addition or subtraction is seen, the children
+			// have a parent to replace.
 			return true;
 		}
 		
@@ -700,6 +697,8 @@ public class ExpressionParser {
 	}
 	
 	protected static class Multiplication extends BinOp {
+		protected boolean optChanges = false;
+		
 		@Override
 		public double getValue(ExpressionSolver s) {
 			return lhs.getValue(s) * rhs.getValue(s);
@@ -736,6 +735,8 @@ public class ExpressionParser {
 		
 		@Override
 		protected Valuable optimizeSpec(ExpressionSolver s) {
+			optChanges = false;
+			
 			// Check for redundant multiplication operation
 			// x * 1 = x
 			Constant cons = null;
@@ -818,37 +819,159 @@ public class ExpressionParser {
 			
 			// Very similar logic to optimizations done in Addition, but altered to suit Multiplication
 			// and Division
+			// We need to find constants on both sides to perform constant combination.
 			NodeRef left = findConstant(lhs, false, false);
-			if (left == null)
-				return null; // We need to find constants on both sides to perform this operation
-			NodeRef right = findConstant(rhs, true, false);
-			if (right == null)
-				return null;
+			if (left != null) {
+				NodeRef right = findConstant(rhs, true, false);
+				if (right != null) {
+					// Collapse the constants, bringing from left to right
+					// Both parents must be BinOp, since negation already ran its constant collapse optimization
+					Constant rightConst;
+					if (right.rightChild) {
+						rightConst = (Constant)right.parent.rhs;
+					}else
+						rightConst = (Constant)((BinOp)right.parent).lhs;
+					
+					double leftConst = ((Constant)left.getNode()).val;
+					boolean thisParent = !replaceParent((BinOp)left.parent, !left.rightChild);
+					// Apply left to right
+					if (left.reverse ^ right.reverse)
+						rightConst.val /= leftConst;
+					rightConst.val *= leftConst;
+					
+					if (thisParent) // if this was the parent of the left child, 
+						return rhs; // then we need to replace it with the right
+					optChanges = true;
+				}
+			}
 			
-			// Collapse the constants, bringing from left to right
-			// Both parents must be BinOp, since negation already ran its constant collapse optimization
-			Constant rightConst;
-			if (right.rightChild) {
-				rightConst = (Constant)right.parent.rhs;
-			}else
-				rightConst = (Constant)((BinOp)right.parent).lhs;
+			// We need to look through the children for any exponents
+			// Exponents of the same base can be combined:
+			//  x^y * x^z = x^(y+z)
+			//  x^y / x^z = x^(y-z)
+			//  y r x * x^z = x^(1/y + z)
+			Valuable res = collapseExponents(this, s);
+			if (res != null)
+				return res;
 			
-			double leftConst;
-			BinOp parent = (BinOp)left.parent;
-			if (left.rightChild)
-				leftConst = ((Constant)parent.rhs).val;
+			if (optChanges)
+				return this;
+			return null;
+		}
+		
+		protected Valuable collapseExponents(BinOp start, ExpressionSolver s) {
+			// Similarly to finding a constant, 
+			// we can look through multiplications and divisions.
+			// It is feasible for us to look through negations, but then we must
+			// keep track of applying the negation(s) to the non-replaced child.
+			// That is currently more effort than it is worth.
+			
+			List<NodeRef> exps = new ArrayList<>();
+			collapseExponents(s, exps, start.lhs, false, false);
+			// It is not possible for the start to need to be replaced since start
+			// must be a BinOp, and its left arm is analyzed first, if the left arm
+			// is an exponent, it would be amended rather than discarded. 
+			boolean replaced = collapseExponents(s, exps, start.rhs, true, false);
+			if (!replaced || start.lhs.parent != this) // if replacement failed
+				return start.lhs; // must not pass rhs, which needs to be discarded
+				
+			return null;
+		}
+		protected boolean collapseExponents(ExpressionSolver s, List<NodeRef> exps,
+				Valuable op, boolean rightChild, boolean negated) {
+			if (op instanceof Multiplication) {
+				Multiplication mult = (Multiplication)op;
+				collapseExponents(s, exps, mult.lhs, false, negated);
+				collapseExponents(s, exps, mult.rhs, true, negated);
+			}else if (op instanceof Division) {
+				Division div = (Division)op;
+				collapseExponents(s, exps, div.lhs, false, negated);
+				collapseExponents(s, exps, div.rhs, true, !negated);
+			}else {
+				// There is a subtle optimization available, since x = x^1.
+				// Multiplication will generally be cheaper than exponentiation,
+				// though, so we can combine if x matches the base of an
+				// exponentiation, but we will not add x as an entry to keep
+				// track of. Unfortunately, that adds a wrinkle to the optimization
+				// process, since x^4*x -> x^5 but x*x^4 will not be combined.
+				boolean firstPower = !(op instanceof Exponentiation || op instanceof Root);
+				Valuable base = getBase(op);
+				
+				// Look through the list of logs to find if this base is already represented
+				for (NodeRef ref: exps) {
+					Valuable exp = ref.getNode();
+					
+					Valuable otherBase = getBase(exp);
+					if (base.equals(otherBase)) {
+						// Now we must combine op into the found other
+						BinOp arg;
+						if (ref.reverse == negated) // if both are the same, add
+							arg = new Addition();
+						else // otherwise, we must subtract
+							arg = new Subtraction();
+						arg.setLhs(getExp(exp));
+						arg.setRhs(getExp(op));
+						Valuable opted = arg.optimize(s);
+						if (opted == null)
+							opted = arg;
+						// Now, set the exponent of the original to our new result:
+						// We are met with some complications if the original is a root
+						if (exp instanceof Root) {
+							Root root = (Root)exp;
+							// Replace exp with an Exponentiation
+							Exponentiation replacement = new Exponentiation();
+							replacement.setLhs(root.rhs); // base is root's rhs
+							replacement.setRhs(opted);
+							// Replace root in its parent
+							if (ref.rightChild)
+								ref.parent.setRhs(replacement);
+							else
+								((BinOp)ref.parent).setLhs(replacement);
+						}else
+							((Op)exp).setRhs(opted);
+						
+						// Now the fun part, where we discard op from the tree
+						optChanges = true;
+						return replaceParent((BinOp)op.parent, !rightChild);
+					}
+				}
+				if (op instanceof Root) {
+					// Give the root ownership of its left child again
+					Root rt = (Root)op;
+					rt.setLhs(rt.lhs); // inform lhs that rt is its parent
+				}
+				
+				// If we did not find the base of this exponent, add this to the list
+				if (!firstPower)
+					exps.add(new NodeRef(op.parent, rightChild, negated));		
+			}
+			
+			return true;
+		}
+		
+		protected Valuable getBase(Valuable op) {
+			if (op instanceof Exponentiation)
+				return ((Exponentiation)op).lhs;
+			else if (op instanceof Root)
+				return ((Root)op).rhs;
 			else
-				// opposite logic to just above
-				leftConst = ((Constant)parent.lhs).val;
-			boolean thisParent = !replaceParent(parent, !left.rightChild);
-			// Apply left to right
-			if (left.reverse ^ right.reverse)
-				rightConst.val /= leftConst;
-			rightConst.val *= leftConst;
-			
-			if (thisParent) // if this was the parent of the left child, 
-				return rhs; // then we need to replace it with the right
-			return this; // otherwise, changes were made in place
+				return op;
+		}
+		
+		protected Valuable getExp(Valuable op) {
+			if (op instanceof Exponentiation) {
+				return ((Exponentiation)op).rhs;
+			}else if (op instanceof Root) {
+				Root rt = (Root)op;
+				// For example, 2 r x = sqrt(x)
+				// 2 r x = x ^ 1/2
+				Division div = new Division();
+				div.setLhs(new Constant(1));
+				div.setRhs(rt.lhs); // rt needs its left child back if not combined!
+				return div;
+			}else {
+				return new Constant(1);
+			}
 		}
 		
 		protected boolean replaceParent(BinOp parent, boolean rightReplace) {
