@@ -351,14 +351,14 @@ class OptimizationsTest {
 	@Test
 	void combineRoots() {
 		Expression act = solve.parseString("z r (y r x)");
-		// z r (y r x) = (y r x) ^ 1/z = (x^(1/y))^(1/z) = x^(1/y * 1/z) = x^(1/(zy))
+		// z r (y r x) = (y r x) ^ 1/z = (x^(1/y))^(1/z) = x^(1/y * 1/z) = x^(1/(yz))
 		Exponentiation exp = new Exponentiation();
 		exp.setLhs(new Variable("x"));
 		Division div = new Division();
 		div.setLhs(new Constant(1));
 		Multiplication mult = new Multiplication();
-		mult.setLhs(new Variable("z"));
-		mult.setRhs(new Variable("y"));
+		mult.setLhs(new Variable("y"));
+		mult.setRhs(new Variable("z"));
 		div.setRhs(mult);
 		exp.setRhs(div);
 		assertEquals(exp, act);
@@ -477,21 +477,25 @@ class OptimizationsTest {
 	@Test
 	void divideExponentiations() {
 		Expression act = solve.parseString("(y^2 / (x^4 * z)) / y^d");
+		// -> y^(2-d) / (x^4 * z)
 		Exponentiation expo = new Exponentiation();
 		expo.setLhs(new Variable("y"));
 		Subtraction sub = new Subtraction();
 		sub.setLhs(new Constant(2));
 		sub.setRhs(new Variable("d"));
 		expo.setRhs(sub);
-		Division exp = new Division();
+		Multiplication exp = new Multiplication();
 		exp.setLhs(expo);
+		Division almost = new Division();
+		almost.setLhs(new Constant(1));
 		Multiplication mult = new Multiplication();
 		Exponentiation left = new Exponentiation();
 		left.setLhs(new Variable("x"));
 		left.setRhs(new Constant(4));
 		mult.setLhs(left);
 		mult.setRhs(new Variable("z"));
-		exp.setRhs(mult);
+		almost.setRhs(mult);
+		exp.setRhs(almost);
 		assertEquals(exp, act);
 	}
 	
@@ -508,6 +512,49 @@ class OptimizationsTest {
 		add.setRhs(new Variable("z"));
 		exp.setRhs(add);
 		assertEquals(exp, act);
+	}
+	
+	void diffPrint(Expression expected, Expression actual) {
+		diffPrintRec((Valuable)expected, (Valuable)actual, new StringBuffer("actual"));
+	}
+	
+	void diffPrintRec(Valuable expected, Valuable actual, StringBuffer buf) {
+		if (expected.equals(actual))
+			return;
+		
+		if (!expected.getClass().equals(actual.getClass())) {
+			System.out.println(buf.toString() + ".class");
+			return;
+		}
+		
+		if (actual instanceof Op) {
+			boolean someChange = false;
+			if (actual instanceof BinOp) {
+				BinOp act = (BinOp)actual;
+				BinOp exp = (BinOp)expected;
+				if (!act.lhs.equals(exp.lhs)) {
+					// Otherwise, we investigate the left arm
+					StringBuffer in = new StringBuffer(buf.toString());
+					in.append(".lhs");
+					diffPrintRec(act.lhs, exp.lhs, in);
+					someChange = true;
+				}
+			}
+			
+			Op actOp = (Op)actual;
+			Op expOp = (Op)expected;
+			if (!actOp.rhs.equals(expOp.rhs)) {
+				// We can keep the buffer since we would have already evaluated left
+				buf.append(".rhs");
+				diffPrintRec(actOp.rhs, expOp.rhs, buf);
+				return;
+			}
+			
+			if (someChange)
+				return;
+		}
+		// If we could not diagnose the problem, print where we failed
+		System.out.println(buf.toString());
 	}
 
 }

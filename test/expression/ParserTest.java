@@ -205,6 +205,17 @@ class ParserTest {
 								  tok(Token.Type.IDENTIFIER, "T"));
 		assertThrows(RuntimeException.class, () -> {parse.parse(inp);});
 	}
+	
+	@Test
+	void badTooManyCloseParens() { // (3 + 4))
+		List<Token> inp = List.of(tok(Token.Type.OPEN_PAREN),
+								  tok(Token.Type.NUMBER, "3"),
+								  tok(Token.Type.PLUS),
+								  tok(Token.Type.NUMBER, "4"),
+								  tok(Token.Type.CLOSE_PAREN),
+								  tok(Token.Type.CLOSE_PAREN));
+		assertThrows(RuntimeException.class, () -> {parse.parse(inp);});
+	}
 
 	
 	Token tok(Token.Type type) {

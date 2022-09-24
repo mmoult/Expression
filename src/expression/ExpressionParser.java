@@ -43,6 +43,7 @@ public class ExpressionParser {
 	 */
 	protected Valuable parse(TokenIterator it) {
 		ArrayList<Valuable> segments = new ArrayList<>();
+		boolean mustFinish = it.index == 0;
 		
 		// Go through the token list and create stub operations.
 		// Also, insert implicit multiplications where necessary.
@@ -131,6 +132,8 @@ public class ExpressionParser {
 			prevLiteral = currLiteral;
 		}
 		
+		if (it.index < it.tokens.size() && mustFinish)
+			throw new RuntimeException("Malformed expression containing too many close parentheses!");
 		if (segments.size() == 0)
 			throw new RuntimeException("Malformed expression containing empty parentheses!");
 		
@@ -213,8 +216,8 @@ public class ExpressionParser {
 	}
 	
 	protected static abstract class Op extends Valuable {
-		/** Dummy expression solver to find whether some valuable is constant */
 		protected Valuable rhs = null;
+		protected boolean optimized = false;
 		
 		@Override
 		public boolean apply(List<Valuable> segments, int selfIndex) {
@@ -227,6 +230,16 @@ public class ExpressionParser {
 			if (!rhs.usable())
 				throw new RuntimeException("Malformed expression! Missing right argument for " + this.getClass().getSimpleName() + ".");
 			this.rhs = rhs;
+			alter(); // since it was changed, we may need to re-optimize
+		}
+		
+		protected void alter() {
+			if (optimized) {
+				optimized = false;
+				if (parent != null && parent instanceof Op)
+					((Op)parent).alter();
+			}
+			// If we were not optimized before, don't do anything...
 		}
 		
 		@Override
@@ -236,6 +249,9 @@ public class ExpressionParser {
 		
 		@Override
 		public Valuable optimize(ExpressionSolver s) {
+			if (optimized)
+				return null;
+			
 			// Optimize children, then optimize self
 			optimizeChildren(s);
 			
@@ -244,6 +260,8 @@ public class ExpressionParser {
 			Valuable newThis = this;
 			if (got != null)
 				newThis = got;
+			else
+				optimized = true;
 			
 			// Lastly, try to fold this into a single constant
 			try {
@@ -255,7 +273,13 @@ public class ExpressionParser {
 				if (newThis != this) {
 					// update its parent
 					newThis.parent = this.parent;
-					return newThis;
+					// It may be optimizable, so try to optimize again (until we reach null or this)
+					Valuable opted = newThis.optimize(s);
+					// We still need to tell the caller of this if any changes were made
+					if (opted == null)
+						return newThis;
+					else // otherwise return the refined result
+						return opted;
 				}
 				return got; // if got was updated, we should inform the caller
 			}
@@ -295,6 +319,17 @@ public class ExpressionParser {
 				return false;
 			return rhs.equals(((Op)o).rhs);
 		}
+		
+		public abstract String opString();
+		
+		public String toString() {
+			StringBuffer buf = new StringBuffer("(");
+			buf.append(opString());
+			buf.append(" ");
+			buf.append(rhs);
+			buf.append(")");
+			return buf.toString();
+		}
 	}
 	
 	protected static abstract class BinOp extends Op {
@@ -312,6 +347,7 @@ public class ExpressionParser {
 			if (!lhs.usable())
 				throw new RuntimeException("Malformed expression! Missing left argument for " + this.getClass().getSimpleName() + ".");
 			this.lhs = lhs;
+			alter();
 		}
 		
 		@Override
@@ -332,6 +368,17 @@ public class ExpressionParser {
 			if (!(super.equals(o) && o instanceof BinOp))
 				return false;
 			return lhs.equals(((BinOp)o).lhs);
+		}
+		
+		public String toString() {
+			StringBuffer buf = new StringBuffer("(");
+			buf.append(lhs);
+			buf.append(" ");
+			buf.append(opString());
+			buf.append(" ");
+			buf.append(rhs);
+			buf.append(")");
+			return buf.toString();
 		}
 	}
 	
@@ -575,6 +622,11 @@ public class ExpressionParser {
 				((BinOp)grand).setLhs(replaceWith);
 			return true;
 		}
+
+		@Override
+		public String opString() {
+			return "+";
+		}
 	}
 	
 	protected static class Subtraction extends BinOp {
@@ -608,7 +660,7 @@ public class ExpressionParser {
 				optNeg = true;
 			
 			useAdd.setRhs(right);
-			Valuable opt = useAdd.optimizeSpec(s);
+			Valuable opt = useAdd.optimize(s);
 			// If an optimization was made, we use it instead of this
 			if (opt != null)
 				return opt;
@@ -619,6 +671,11 @@ public class ExpressionParser {
 			setLhs(lhs);
 			setRhs(rhs);
 			return null;
+		}
+		
+		@Override
+		public String opString() {
+			return "-";
 		}
 	}
 	
@@ -694,10 +751,16 @@ public class ExpressionParser {
 			}
 			return null;
 		}
+		
+		@Override
+		public String opString() {
+			return "+";
+		}
 	}
 	
 	protected static class Multiplication extends BinOp {
 		protected boolean optChanges = false;
+		protected boolean mayCollapseRightDiv = true;
 		
 		@Override
 		public double getValue(ExpressionSolver s) {
@@ -794,7 +857,10 @@ public class ExpressionParser {
 				}
 				other = rhs;
 				rightChild = false;
-			}else if (rhs instanceof Division) {
+			}else if (rhs instanceof Division && mayCollapseRightDiv) {
+				// We cannot use right division if this came from Division's optimization
+				// (since otherwise we end up with infinite recursion by collapsing 
+				//  division's convolution).
 				div = (Division)rhs;
 				other = lhs;
 			}
@@ -817,9 +883,9 @@ public class ExpressionParser {
 					this.setLhs(div);
 			}
 			
+			// We need to find constants on both sides to perform constant combination.
 			// Very similar logic to optimizations done in Addition, but altered to suit Multiplication
 			// and Division
-			// We need to find constants on both sides to perform constant combination.
 			NodeRef left = findConstant(lhs, false, false);
 			if (left != null) {
 				NodeRef right = findConstant(rhs, true, false);
@@ -998,6 +1064,11 @@ public class ExpressionParser {
 				((BinOp)grand).setLhs(replaceWith);
 			return true;
 		}
+		
+		@Override
+		public String opString() {
+			return "*";
+		}
 	}
 	
 	protected static class Division extends BinOp {
@@ -1013,20 +1084,13 @@ public class ExpressionParser {
 
 		@Override
 		protected Valuable optimizeSpec(ExpressionSolver s) {
-			// If the numerator is some constant, we don't need to run optimizations through
-			// multiply (this also helps us avoid infinite recursion).
-			if (lhs instanceof Constant) {
+			// Check for some redundant operations:
+			if (lhs instanceof Constant && s.parse.equals(((Constant)lhs).val, 0))
 				// If the constant is a 0, then this is constant 0
-				if (s.parse.equals(((Constant)lhs).val, 0))
-					return lhs;
-				return null;
-			}
-			
+				return lhs;
 			// Dividing by 1 is a redundant operation
-			if (rhs instanceof Constant) {
-				Constant r = (Constant)rhs;
-				if (s.parse.equals(r.val, 1))
-					return lhs; // no need for the divide
+			if (rhs instanceof Constant && s.parse.equals(((Constant)rhs).val, 1)) {
+				return lhs; // no need for the divide
 			}else if (rhs instanceof Division) {
 				// x / y / z = xz / y
 				Multiplication numerator = new Multiplication();
@@ -1044,32 +1108,37 @@ public class ExpressionParser {
 			if (lhs.equals(rhs))
 				return new Constant(1);
 			
+			// Rely on multiplication's optimizations
 			Multiplication useMul = new Multiplication();
 			useMul.setLhs(lhs);
 			// Children have already been optimized, so if rhs resolves to a constant,
 			// it would be a constant by now
-			Valuable right;
+			Valuable got = null;
+			boolean optInv = false; // We need to know if division optimized in order to restore state
 			if (rhs instanceof Constant) {
 				Constant con = (Constant)rhs;
-				right = new Constant(1 / con.val);
+				Valuable right = new Constant(1 / con.val);
+				got = right.optimize(s);
+				
+				if (got == null) {
+					got = right;
+					optInv = false;
+				}else
+					optInv = true;
 			}else {
 				// Otherwise, we just create a multiplication by 1 / rhs
+				// There is an issue with this definition, since it is a recursive optimization.
+				// We avoid this by telling division that it is already optimized.
 				Division r = new Division();
 				r.setLhs(new Constant(1));
 				r.setRhs(rhs);
-				right = r;
+				r.optimized = true;
+				got = r;
+				useMul.mayCollapseRightDiv = false; // may not collapse our convolution!
 			}
-			Valuable got = right.optimize(s);
-			boolean optInv; // We need to know if division optimized in order to restore state
-			if (got == null) {
-				got = right;
-				optInv = false;
-			}else
-				optInv = true;
 			
-			useMul.setRhs(right);
-			Valuable opt = useMul.optimizeSpec(s);
-			// If an optimization was made, we use it instead of this
+			useMul.setRhs(got);
+			Valuable opt = useMul.optimize(s);
 			if (opt != null)
 				return opt;
 			if (optInv)
@@ -1079,6 +1148,11 @@ public class ExpressionParser {
 			setLhs(lhs);
 			setRhs(rhs);
 			return null;
+		}
+		
+		@Override
+		public String opString() {
+			return "/";
 		}
 	}
 	
@@ -1130,6 +1204,11 @@ public class ExpressionParser {
 			}else
 				return null;
 		}
+		
+		@Override
+		public String opString() {
+			return "^";
+		}
 	}
 	
 	protected static class Root extends BinOp {
@@ -1151,7 +1230,7 @@ public class ExpressionParser {
 			inv.setLhs(new Constant(1));
 			inv.setRhs(lhs);
 			useExp.setLhs(rhs);
-			Valuable base = inv.optimizeSpec(s);
+			Valuable base = inv.optimize(s);
 			boolean optInv; // We need to know if division optimized in order to restore state
 			if (base == null) {
 				base = inv;
@@ -1160,7 +1239,7 @@ public class ExpressionParser {
 				optInv = true;
 			
 			useExp.setRhs(base);
-			Valuable opt = useExp.optimizeSpec(s);
+			Valuable opt = useExp.optimize(s);
 			// If an optimization was made, we use it instead of this
 			if (opt != null)
 				return opt;
@@ -1171,6 +1250,11 @@ public class ExpressionParser {
 			setLhs(lhs);
 			setRhs(rhs);
 			return null;
+		}
+		
+		@Override
+		public String opString() {
+			return "^";
 		}
 	}
 	
@@ -1193,6 +1277,11 @@ public class ExpressionParser {
 			// can select the arm with the lowest (for min) / highest (for max) constant.
 			return null;
 		}
+		
+		@Override
+		public String opString() {
+			return "min";
+		}
 	}
 	
 	protected static class Max extends BinOp {
@@ -1204,6 +1293,11 @@ public class ExpressionParser {
 		@Override
 		public int getPrecedence() {
 			return 1;
+		}
+		
+		@Override
+		public String opString() {
+			return "max";
 		}
 	}
 	
@@ -1217,6 +1311,11 @@ public class ExpressionParser {
 		public int getPrecedence() {
 			return 5;
 		}
+		
+		@Override
+		public String opString() {
+			return "cos";
+		}
 	}
 	
 	protected static class Sine extends Op {
@@ -1229,6 +1328,11 @@ public class ExpressionParser {
 		public int getPrecedence() {
 			return 5;
 		}
+		
+		@Override
+		public String opString() {
+			return "sin";
+		}
 	}
 	
 	protected static class Tangent extends Op {
@@ -1240,6 +1344,11 @@ public class ExpressionParser {
 		@Override
 		public int getPrecedence() {
 			return 5;
+		}
+		
+		@Override
+		public String opString() {
+			return "tan";
 		}
 	}
 	
@@ -1298,6 +1407,11 @@ public class ExpressionParser {
 			}else
 				return null;
 		}
+		
+		@Override
+		public String opString() {
+			return "log";
+		}
 	}
 	
 	protected static class NatLog extends Op {
@@ -1324,6 +1438,11 @@ public class ExpressionParser {
 			setRhs(rhs); // remind rhs that this is its parent
 			return null;
 		}
+		
+		@Override
+		public String opString() {
+			return "ln";
+		}
 	}
 	
 	protected static class Round extends Op {
@@ -1335,6 +1454,11 @@ public class ExpressionParser {
 		@Override
 		public int getPrecedence() {
 			return 5;
+		}
+		
+		@Override
+		public String opString() {
+			return "round";
 		}
 	}
 	
@@ -1348,6 +1472,11 @@ public class ExpressionParser {
 		public int getPrecedence() {
 			return 5;
 		}
+		
+		@Override
+		public String opString() {
+			return "ceil";
+		}
 	}
 	
 	protected static class Floor extends Op {
@@ -1359,6 +1488,11 @@ public class ExpressionParser {
 		@Override
 		public int getPrecedence() {
 			return 5;
+		}
+		
+		@Override
+		public String opString() {
+			return "floor";
 		}
 	}
 	
@@ -1387,6 +1521,11 @@ public class ExpressionParser {
 			Constant other = (Constant)o;
 			return val + maxErr > other.val && other.val + maxErr > val;
 		}
+		
+		@Override
+		public String toString() {
+			return Double.toString(val);
+		}
 	}
 	
 	protected static class Variable extends Valuable {
@@ -1406,6 +1545,11 @@ public class ExpressionParser {
 			if (o == null || !(o instanceof Variable))
 				return false;
 			return name.equals(((Variable)o).name);
+		}
+		
+		@Override
+		public String toString() {
+			return name;
 		}
 	}
 	
