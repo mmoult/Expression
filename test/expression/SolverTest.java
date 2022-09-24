@@ -6,6 +6,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import expression.ExpressionParser.*;
+import expression.ExpressionSolver.Expression;
 
 class SolverTest {
 	static ExpressionSolver solve;
@@ -14,7 +15,8 @@ class SolverTest {
 	static void setup() {
 		String[] vars = {"pi", "e"};
 		double[] vals = {3.14159265, 2.71828};
-		solve = new ExpressionSolver(vars, vals);
+		solve = new ExpressionSolver(vars);
+		solve.setValues(vals);
 		solve.parse.maxErr = 0.0001;
 	}
 	
@@ -46,10 +48,9 @@ class SolverTest {
 	void integrationSimple() {
 		// Verify that it works for both opt and nonopt
 		String expression = "(sin(pi/2) + ln e) / 2";
-		double opt = solve.evalString(expression);
-		solve.parse.optimize = false;
+		Expression exp = solve.parseString(expression);
+		double opt = solve.eval(exp);
 		double nonopt = solve.evalString(expression);
-		solve.parse.optimize = true;
 		assertTrue(solve.parse.equals(opt, nonopt));
 		assertTrue(solve.parse.equals(opt, 1));
 	}
@@ -57,10 +58,9 @@ class SolverTest {
 	@Test
 	void integrationPrecedence() {
 		String expression = "6 / 2(4 - 1)";
-		double opt = solve.evalString(expression);
-		solve.parse.optimize = false;
+		Expression exp = solve.parseString(expression);
+		double opt = solve.eval(exp);
 		double nonopt = solve.evalString(expression);
-		solve.parse.optimize = true;
 		assertTrue(solve.parse.equals(opt, nonopt));
 		assertTrue(solve.parse.equals(opt, 9));
 	}
