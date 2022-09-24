@@ -2,7 +2,6 @@ package expression;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.junit.jupiter.api.Assertions.fail;
 
 import org.junit.jupiter.api.Test;
 
@@ -11,7 +10,7 @@ import expression.ExpressionSolver.Expression;
 
 class OptimizationsTest {
 	// It is more convenient to specify expressions as strings, so that is what we will use
-	ExpressionSolver solve = new ExpressionSolver(new String[] {}, new double[] {});
+	ExpressionSolver solve = new ExpressionSolver(new String[] {"x", "y", "z", "a", "d", "n"});
 	
 	@Test
 	void foldConstantsSimpleAdd() {

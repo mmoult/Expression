@@ -11,7 +11,6 @@ import expression.ExpressionSolver.Expression;
 import expression.ExpressionSolver.UndefinedVarException;
 
 public class ExpressionParser {
-	public boolean optimize = true;
 	public double maxErr = 0.0001;
 	
 	/**
@@ -20,11 +19,13 @@ public class ExpressionParser {
 	 * <p>
 	 * Parsing will fold any constant operations encountered.
 	 * @param tokens the tokens to parse
+	 * @param varNames an array of recognized identifiers. If null, all variables are accepted
+	 * @param optimize whether the result expression should be optimized
 	 * @return the Valuable result
 	 */
-	public Expression parse(List<Token> tokens) {
+	public Expression parse(List<Token> tokens, String[] varNames, boolean optimize) {
 		TokenIterator it = new TokenIterator(tokens);
-		return parse(it);
+		return parse(it, varNames, optimize);
 	}
 	
 	protected static class TokenIterator {
@@ -39,9 +40,10 @@ public class ExpressionParser {
 	/**
 	 * Recursive parsing method
 	 * @param it the iterator to keep track of our index in the list
+	 * @param optimize whether the result expression should be optimized
 	 * @return the parsed expression
 	 */
-	protected Valuable parse(TokenIterator it) {
+	protected Valuable parse(TokenIterator it, String[] varNames, boolean optimize) {
 		ArrayList<Valuable> segments = new ArrayList<>();
 		boolean mustFinish = it.index == 0;
 		
@@ -70,6 +72,9 @@ public class ExpressionParser {
 				segments.add(new Floor());
 				break;
 			case IDENTIFIER:
+				// Verify that this identifier exists with the parsing solver
+				if (varNames != null && !List.of(varNames).contains(token.value))
+					throw new RuntimeException("Unrecognized variable: \"" + token.value + "\"!");
 				if (prevLiteral != null)
 					segments.add(new Multiplication());
 				segments.add(new Variable(token.value));
@@ -108,7 +113,7 @@ public class ExpressionParser {
 					segments.add(new Multiplication());
 				// Opens a new segment
 				it.index++;
-				segments.add(parse(it));
+				segments.add(parse(it, varNames, optimize));
 				currLiteral = Token.Type.CLOSE_PAREN;
 				break;
 			case PLUS:
@@ -178,7 +183,8 @@ public class ExpressionParser {
 		
 		// Try to optimize if it is allowable
 		if (optimize) {
-			ExpressionSolver opter = new ExpressionSolver(new String[] {}, new double[] {});
+			ExpressionSolver opter = new ExpressionSolver(new String[] {});
+			opter.setValues(new double[] {});
 			opter.parse = this; // use the same max error as this
 			Valuable opt = seg.optimize(opter);
 			if (opt != null)

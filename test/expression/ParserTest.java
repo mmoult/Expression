@@ -17,7 +17,6 @@ class ParserTest {
 	@BeforeAll
 	static void setup() {
 		parse = new ExpressionParser();
-		parse.optimize = false; // disable optimizations for these tests
 	}
 	
 	@Test
@@ -32,7 +31,7 @@ class ParserTest {
 								  tok(Token.Type.DIVIDE),
 								  tok(Token.Type.COS),
 								  tok(Token.Type.IDENTIFIER, "rads"));
-		Expression act = parse.parse(inp);
+		Expression act = parse.parse(inp, null, false);
 		Addition add = new Addition();
 		add.setLhs(new Constant(4.81));
 		add.setRhs(new Variable("x"));
@@ -58,7 +57,7 @@ class ParserTest {
 				  				  tok(Token.Type.IDENTIFIER, "foo"),
 				  				  tok(Token.Type.NUMBER, "45"),
 				  				  tok(Token.Type.CLOSE_PAREN));
-		Expression act = parse.parse(inp);
+		Expression act = parse.parse(inp, null, false);
 		Negation neg = new Negation();
 		neg.setRhs(new Constant(3));
 		Multiplication coef = new Multiplication();
@@ -91,7 +90,7 @@ class ParserTest {
 				  				  tok(Token.Type.PLUS),
 				  				  tok(Token.Type.NUMBER, "1"),
 				  				  tok(Token.Type.CLOSE_PAREN));
-		Expression act = parse.parse(inp);
+		Expression act = parse.parse(inp, null, false);
 		Root exp = new Root();
 		Negation neg = new Negation();
 		neg.setRhs(new Constant(10));
@@ -128,7 +127,7 @@ class ParserTest {
 				  				  tok(Token.Type.IDENTIFIER, "y"),
 				  				  tok(Token.Type.CLOSE_PAREN),
 				  				  tok(Token.Type.CLOSE_PAREN));
-		Expression act = parse.parse(inp);
+		Expression act = parse.parse(inp, new String[] {"x", "y", "z"}, false);
 		Subtraction exp = new Subtraction();
 		Addition left = new Addition();
 		left.setLhs(new Constant(7));
@@ -156,7 +155,7 @@ class ParserTest {
 		// To get the desired result, this needs to be evaluated with left-evaluation.
 		// Otherwise, we get a - (b + c - d), which is not equal to the expected
 		// (a - b) + (c - d) or ((a - b) + c) - d
-		Expression act = parse.parse(inp);
+		Expression act = parse.parse(inp, null, false);
 		Subtraction exp = new Subtraction();
 		exp.setRhs(new Variable("d"));
 		Addition add = new Addition();
@@ -178,7 +177,7 @@ class ParserTest {
 				  				  tok(Token.Type.IDENTIFIER, "y"),
 				  				  tok(Token.Type.EXPONENT),
 				  				  tok(Token.Type.IDENTIFIER, "z"));
-		Expression act = parse.parse(inp);
+		Expression act = parse.parse(inp, null, false);
 		Multiplication exp = new Multiplication();
 		Root root = new Root();
 		root.setLhs(new Variable("x"));
@@ -194,7 +193,7 @@ class ParserTest {
 	@Test
 	void badImplicit() { // 3 4
 		List<Token> inp = List.of(tok(Token.Type.NUMBER, "3"), tok(Token.Type.NUMBER, "4"));
-		assertThrows(RuntimeException.class, () -> {parse.parse(inp);});
+		assertThrows(RuntimeException.class, () -> {parse.parse(inp, null, false);});
 	}
 	
 	@Test
@@ -203,7 +202,7 @@ class ParserTest {
 								  tok(Token.Type.PLUS),
 								  tok(Token.Type.DIVIDE),
 								  tok(Token.Type.IDENTIFIER, "T"));
-		assertThrows(RuntimeException.class, () -> {parse.parse(inp);});
+		assertThrows(RuntimeException.class, () -> {parse.parse(inp, null, false);});
 	}
 	
 	@Test
@@ -214,7 +213,13 @@ class ParserTest {
 								  tok(Token.Type.NUMBER, "4"),
 								  tok(Token.Type.CLOSE_PAREN),
 								  tok(Token.Type.CLOSE_PAREN));
-		assertThrows(RuntimeException.class, () -> {parse.parse(inp);});
+		assertThrows(RuntimeException.class, () -> {parse.parse(inp, null, false);});
+	}
+	
+	@Test
+	void badVariableName() {
+		List<Token> inp = List.of(tok(Token.Type.IDENTIFIER, "bad"));
+		assertThrows(RuntimeException.class, () -> {parse.parse(inp, new String[] {"x"}, false);});
 	}
 
 	

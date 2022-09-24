@@ -1,19 +1,22 @@
+package expression.example;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Scanner;
 
 import expression.ExpressionSolver;
 
-public class Main {
+public class ExpressionExample {
 	
 	public static void main(String args[]) {
-		new Main();
+		new ExpressionExample();
 	}
 	
-	public Main() {
+	public ExpressionExample() {
 		String[] vars = {"pi", "e", "t"};
 		double[] values = {3.141592653589, 2.718281828459, 0};
-		ExpressionSolver solve = new ExpressionSolver(vars, values);
+		ExpressionSolver solve = new ExpressionSolver(vars);
+		solve.setValues(values);
 		Scanner scan = new Scanner(System.in);
 		
 		System.out.println("Function Tracer:");
@@ -31,7 +34,7 @@ public class Main {
 			String func = scan.nextLine();
 			if(func.isEmpty() || func.equals("quit"))
 				break;
-			functions.add(solve.parseString(func));
+			functions.add(solve.parseString(func, true));
 		}
 		if(functions.isEmpty()) {
 			scan.close();

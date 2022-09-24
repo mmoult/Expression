@@ -4,7 +4,6 @@ import java.util.List;
 
 import expression.ExpressionLexer.Token;
 
-//2022 Sep 3
 /**Solves algebraic expressions in double precision, ignoring all whitespace. There are eight
  * recognized operators which can be used in the expression:
  * 
@@ -41,17 +40,17 @@ import expression.ExpressionLexer.Token;
  */
 public class ExpressionSolver {
 	protected String[] variables;
-	protected double[] values;
+	protected double[] values = null;
 	
 	protected ExpressionLexer lex;
 	protected ExpressionParser parse;
 	
 	/**
-	 * @param variables A list of the variable names. Examples are pi, e, etc.
-	 * @param values A list of the variable values. Examples are 3.14, 2.72, etc.
+	 * @param variables A list of the variable names each beginning with an alphabetic character
+	 * and containing only alphanumeric characters.
 	 */
-	public ExpressionSolver(String[] variables, double[] values){
-		setVariables(variables, values);
+	public ExpressionSolver(String[] variables) {
+		this.variables = variables;
 		lex = new ExpressionLexer();
 		parse = new ExpressionParser();
 	}
@@ -75,7 +74,7 @@ public class ExpressionSolver {
 	 */
 	public void setValues(double[] values) {
 		this.values = values;
-		if (variables.length != values.length)
+		if (values.length != variables.length)
 			throw new RuntimeException("Lengths of variables and values must match!");
 	}
 	
@@ -88,17 +87,27 @@ public class ExpressionSolver {
 	}
 	
 	/**
+	 * Calls {@link #parseString(String, boolean)} with optimizations on.
+	 * @param expression the string expression to parse
+	 * @return the parsed and optimized expression
+	 */
+	public Expression parseString(String expression) {
+		return parseString(expression, true);
+	}
+	
+	/**
 	 * Produces an abstract expression tree to represent the string. The expression
 	 * structure can be evaluated once or multiple times with different variables
 	 * using {@link #eval(Expression)}.
 	 * @param expression the string expression to parse
+	 * @param whether the expression should be optimized
 	 * @return an expression tree that represents the given string
 	 */
-	public Expression parseString(String expression) {
+	public Expression parseString(String expression, boolean optimize) {
 		List<Token> tokens = lex.lexExpression(expression);
 		
 		// Now that we have a token list, we want to parse it
-		return parse.parse(tokens);
+		return parse.parse(tokens, variables, optimize);
 	}
 	
 	/**
@@ -107,6 +116,8 @@ public class ExpressionSolver {
 	 * @return the double-precision result
 	 */
 	public double eval(Expression e) {
+		if (values == null)
+			throw new RuntimeException("Unintialized values! Try calling \"setValues\" first!");
 		return e.getValue(this);
 	}
 	
@@ -116,7 +127,8 @@ public class ExpressionSolver {
 	 * @return the double-precision result
 	 */
 	public double evalString(String expression) {
-		return eval(parseString(expression));
+		// If we are immediately evaluating the string, don't perform optimizations
+		return eval(parseString(expression, false));
 	}
 	
 	public static class UndefinedVarException extends RuntimeException {
