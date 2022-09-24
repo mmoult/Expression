@@ -6,6 +6,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import expression.ExpressionParser.*;
+import expression.ExpressionSolver.Expression;
 
 class SolverTest {
 	static ExpressionSolver solve;
