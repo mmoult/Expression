@@ -60,11 +60,8 @@ public class ExpressionSolver {
 	 * @param variables a list of variables to use
 	 * @param values a list of values to use for the given variables
 	 */
-	public void setVariables(String[] variables, double[] values) {
+	public void setVariables(String[] variables) {
 		this.variables = variables;
-		this.values = values;
-		if (variables.length != values.length)
-			throw new RuntimeException("Lengths of variables and values must match!");
 	}
 	
 	/**
