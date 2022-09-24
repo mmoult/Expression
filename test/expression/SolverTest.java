@@ -7,7 +7,7 @@ import org.junit.jupiter.api.Test;
 
 import expression.ExpressionParser.*;
 
-class ExpressionSolverTest {
+class SolverTest {
 	static ExpressionSolver solve;
 	
 	@BeforeAll
@@ -15,6 +15,7 @@ class ExpressionSolverTest {
 		String[] vars = {"pi", "e"};
 		double[] vals = {3.14159265, 2.71828};
 		solve = new ExpressionSolver(vars, vals);
+		solve.parse.maxErr = 0.0001;
 	}
 	
 	@Test
@@ -38,7 +39,7 @@ class ExpressionSolverTest {
 		right.setLhs(square);
 		right.setRhs(new Constant(3));
 		add.setRhs(right);
-		assertTrue(equals(38.31370849898476, solve.eval(add)));
+		assertTrue(solve.parse.equals(38.31370849898476, solve.eval(add)));
 	}
 
 	@Test
@@ -49,13 +50,18 @@ class ExpressionSolverTest {
 		solve.parse.optimize = false;
 		double nonopt = solve.evalString(expression);
 		solve.parse.optimize = true;
-		assertTrue(equals(opt, nonopt));
-		assertTrue(equals(opt, 1));
+		assertTrue(solve.parse.equals(opt, nonopt));
+		assertTrue(solve.parse.equals(opt, 1));
 	}
 	
-	boolean equals(double x, double y) {
-		// acceptable error
-		final double ETA = 0.001;
-		return x + ETA > y && y + ETA > x;
+	@Test
+	void integrationPrecedence() {
+		String expression = "6 / 2(4 - 1)";
+		double opt = solve.evalString(expression);
+		solve.parse.optimize = false;
+		double nonopt = solve.evalString(expression);
+		solve.parse.optimize = true;
+		assertTrue(solve.parse.equals(opt, nonopt));
+		assertTrue(solve.parse.equals(opt, 9));
 	}
 }

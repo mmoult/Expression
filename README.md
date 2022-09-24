@@ -22,7 +22,7 @@ The 'r' is root. For example, "2r 4" is the square root of 4. All other operator
 <pre>cos sin tan log ln round ceil floor max min</pre>
 
 The single-argument functions, cos, sin, tan, ln, round, ceil, and floor, take an argument
-on their right, ie, "cos1" or "cos(1)". The two-argument functions, max, min, and log,
+on their right, ie, "cos 1" or "cos(1)". The two-argument functions, max, min, and log,
 receive one argument on the left and the other on the right. Note that log's left exponent
 is the base, and the right is the argument. For example, "10 log 100" = 2. For all functions,
 parentheses are not necessary except to specify precedence.
@@ -30,7 +30,8 @@ parentheses are not necessary except to specify precedence.
 Note the list of operator precedence, in order from top to bottom:
 <ol>
 <li>( )</li>
-<li>-<i>(unary negation)</i> cos sin tan ln round ceil floor</li>
+<li>-<i>(unary negation)</i></li>
+<li>cos sin tan ln round ceil floor</li>
 <li>^ r log</li>
 <li>* /</li>
 <li>+ -</li>

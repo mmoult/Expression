@@ -9,7 +9,7 @@ import org.junit.jupiter.api.Test;
 
 import expression.ExpressionLexer.Token;
 
-class ExpressionLexerTest {
+class LexerTest {
 	static ExpressionLexer lex = new ExpressionLexer();
 	
 	@Test
