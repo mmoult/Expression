@@ -820,7 +820,9 @@ public class ExpressionParser {
 			if (cons != null) {
 				if (s.parse.equals(cons.val, 1))
 					return other;
-				if (s.parse.equals(cons.val, 0))
+				// We can only perform the times by 0 reduction if the other number is rational.
+				// Irrational cases may not result to 0. For example, Inf * 0 = NaN, NaN * 0 = NaN.
+				if (s.rational && s.parse.equals(cons.val, 0))
 					return cons;
 			}
 			
@@ -1091,7 +1093,7 @@ public class ExpressionParser {
 		@Override
 		protected Valuable optimizeSpec(ExpressionSolver s) {
 			// Check for some redundant operations:
-			if (lhs instanceof Constant && s.parse.equals(((Constant)lhs).val, 0))
+			if (s.rational && lhs instanceof Constant && s.parse.equals(((Constant)lhs).val, 0))
 				// If the constant is a 0, then this is constant 0
 				return lhs;
 			// Dividing by 1 is a redundant operation

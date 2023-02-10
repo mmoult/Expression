@@ -46,6 +46,12 @@ public class ExpressionSolver {
 	protected ExpressionParser parse;
 	
 	/**
+	 * Some operations, such as multiplication by 0 simplification, are only possible if we limit
+	 * values to be rational.
+	 */
+	public boolean rational = true;
+	
+	/**
 	 * @param variables A list of the variable names each beginning with an alphabetic character
 	 * and containing only alphanumeric characters.
 	 */
